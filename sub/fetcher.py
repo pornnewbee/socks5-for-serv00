@@ -9,7 +9,7 @@ from datetime import datetime, timedelta, timezone
 # ===================== 配置区 =====================
 SEGMENTS_PER_DAY = 48                  # 每天拆成几段
 MAX_RETRIES = 5                        # 单页请求最大重试次数
-BACKOFF = 1                             # 重试基数秒，0 表示不限速
+BACKOFF = 0                             # 重试基数秒，0 表示不限速
 MAX_CONCURRENT_ACCOUNTS = 1             # 同时查询账户数
 MAX_CONCURRENT_REQUESTS_PER_ACCOUNT = 20 # 每个账户内部同时发出的请求数
 MAX_CONCURRENT_REQUESTS_GLOBAL = 40      # 全局同时发出的请求数
@@ -216,4 +216,5 @@ async def main_async():
 
 if __name__ == "__main__":
     asyncio.run(main_async())
+
 
