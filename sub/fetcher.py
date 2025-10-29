@@ -8,9 +8,9 @@ from datetime import datetime, timedelta, timezone
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # ===================== 配置区 =====================
-SEGMENTS_PER_DAY = 6              # 每天拆成几段
+SEGMENTS_PER_DAY = 48              # 每天拆成几段
 MAX_RETRIES = 5                   # 单页请求最大重试次数
-BACKOFF = 0                        # 重试间隔秒，0 表示不限速
+BACKOFF = 1                        # 重试间隔秒，0 表示不限速
 MAX_CONCURRENT_ACCOUNTS = 1        # 同时查询账户数
 THREADS_PER_ACCOUNT = 1            # 每个账户内部线程数
 # ==================================================
@@ -185,3 +185,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
