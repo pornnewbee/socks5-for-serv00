@@ -14,7 +14,7 @@ MAX_CONCURRENT_ACCOUNTS = 1             # 同时查询账户数
 MAX_CONCURRENT_REQUESTS_PER_ACCOUNT = 20 # 每个账户内部同时发出的请求数
 MAX_CONCURRENT_REQUESTS_GLOBAL = 40      # 全局同时发出的请求数
 FOLLOWER_START_INTERVAL = 1             # 从线程启动间隔秒
-FOLLOWER_RECOVERY_INTERVAL = 3          # 从线程恢复任务间隔秒
+FOLLOWER_RECOVERY_INTERVAL = 1          # 从线程恢复任务间隔秒
 # ==================================================
 
 # 从环境变量读取 ACCOUNTS
@@ -226,6 +226,7 @@ async def main_async():
 
 if __name__ == "__main__":
     asyncio.run(main_async())
+
 
 
 
