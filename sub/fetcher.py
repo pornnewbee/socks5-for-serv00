@@ -70,7 +70,7 @@ def split_timeframes(date_str, segments=SEGMENTS_PER_DAY):
     return ranges
 
 
-async def fetch_segment(session, account_id, service_name, seg_id, start_ms, end_ms, sem_account, sem_global):
+async def fetch_segment(session, account_id, service_name, seg_id, start_ms, end_ms, sem_account, sem_global, paused_queue=None):
     """抓取单段日志（分页 + 自动重试 + 5xx重试 + 安全解析）"""
     all_logs = {}
     offset = None
@@ -226,6 +226,7 @@ async def main_async():
 
 if __name__ == "__main__":
     asyncio.run(main_async())
+
 
 
 
