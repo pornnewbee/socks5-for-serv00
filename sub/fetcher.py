@@ -70,19 +70,24 @@ def split_timeframes(date_str, segments=SEGMENTS_PER_DAY):
     return ranges
 
 
-async def fetch_segment(session, account_id, service_name, seg_id, start_ms, end_ms, sem_account: asyncio.Semaphore, sem_global: asyncio.Semaphore, paused_queue=None):
-    """抓取单段日志（分页 + 异步指数退避重试 + 429 暂停）"""
+async def fetch_segment(session, account_id, service_name, seg_id, start_ms, end_ms, sem_account, sem_global):
+    """抓取单段日志（分页 + 自动重试 + 5xx重试 + 安全解析）"""
     all_logs = {}
     offset = None
     page = 0
+
     base_data = {
         "view": "invocations",
         "queryId": "workers-logs-invocations",
         "limit": 100,
         "parameters": {
             "datasets": ["cloudflare-workers"],
-            "filters": [{"key": "$metadata.service", "type": "string", "value": service_name, "operation": "eq"}],
-            "calculations": [], "groupBys": [], "havings": []
+            "filters": [
+                {"key": "$metadata.service", "type": "string", "value": service_name, "operation": "eq"}
+            ],
+            "calculations": [],
+            "groupBys": [],
+            "havings": []
         },
         "timeframe": {"from": start_ms, "to": end_ms}
     }
@@ -92,34 +97,37 @@ async def fetch_segment(session, account_id, service_name, seg_id, start_ms, end
         if offset:
             data["offset"] = offset
 
-        attempt = 0
-        while True:
-            attempt += 1
-            async with sem_account, sem_global:
-                try:
-                    async with session.post(URL_TEMPLATE.format(account_id=account_id),
-                                            headers=HEADERS, json=data, timeout=15) as resp:
-                        if resp.status == 200:
+        for attempt in range(1, MAX_RETRIES + 1):
+            try:
+                async with sem_account, sem_global:
+                    async with session.post(URL_TEMPLATE.format(account_id=account_id), headers=HEADERS, json=data, timeout=15) as resp:
+                        status = resp.status
+                        text = await resp.text()
+                        if status == 200:
                             result = await resp.json()
                             break
-                        elif resp.status == 429:
-                            print(f"⚠️ {account_id}/{service_name} 第{seg_id}段 第{page+1}页 429，任务暂停")
-                            if paused_queue is not None:
-                                await paused_queue.put((seg_id, start_ms, end_ms))
-                            return all_logs
+                        elif status in (429, 500, 502, 503, 504):
+                            print(f"⚠️ {account_id}/{service_name} 第{seg_id}段 第{page+1}页 HTTP {status}, retry {attempt}")
+                        elif status == 400:
+                            print(f"⚠️ {account_id}/{service_name} 第{seg_id}段 第{page+1}页 400内容: {text[:500]}")
+                            result = None
+                            break
                         else:
-                            print(f"⚠️ {account_id}/{service_name} 第{seg_id}段 第{page+1}页 HTTP {resp.status}")
-                            result = await resp.json()
-                            break
-                except (asyncio.TimeoutError, aiohttp.ClientError) as e:
-                    wait_time = min(BACKOFF * (2 ** attempt), 10)
-                    print(f"❌ {account_id}/{service_name} 第{seg_id}段 第{page+1}页 网络错误: {e}, 等待 {wait_time}s")
-                    await asyncio.sleep(wait_time)
-            if attempt >= MAX_RETRIES and BACKOFF > 0:
+                            print(f"⚠️ {account_id}/{service_name} 第{seg_id}段 第{page+1}页 HTTP {status}")
+            except Exception as e:
+                print(f"❌ {account_id}/{service_name} 第{seg_id}段 第{page+1}页 异常: {e}")
+
+            await asyncio.sleep(BACKOFF * (2 ** (attempt-1)))  # 指数退避
+            if attempt == MAX_RETRIES:
                 print(f"❌ {account_id}/{service_name} 第{seg_id}段 多次失败，放弃")
                 return all_logs
 
-        invocations = result.get("result", {}).get("invocations", {})
+        # JSON 安全解析
+        if not result or "result" not in result or "invocations" not in result["result"]:
+            print(f"❌ {account_id}/{service_name} 第{seg_id}段 空或异常响应")
+            break
+
+        invocations = result["result"].get("invocations", {})
         if not invocations:
             break
 
@@ -127,6 +135,7 @@ async def fetch_segment(session, account_id, service_name, seg_id, start_ms, end
         page += 1
         print(f"✅ {account_id}/{service_name} 第{seg_id}段 第{page}页 {len(invocations)}条日志")
 
+        # 计算下一页 offset
         offset = None
         for req_id in reversed(list(invocations.keys())):
             logs_list = invocations[req_id]
@@ -139,6 +148,7 @@ async def fetch_segment(session, account_id, service_name, seg_id, start_ms, end
             break
 
     return all_logs
+
 
 
 async def fetch_account(account_id, service_name, dates, sem_global: asyncio.Semaphore):
@@ -216,5 +226,6 @@ async def main_async():
 
 if __name__ == "__main__":
     asyncio.run(main_async())
+
 
 
