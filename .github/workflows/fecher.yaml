@@ -18,7 +18,9 @@ jobs:
           python-version: 3.11
 
       - name: Install dependencies
-        run: pip install requests
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests aiohttp
 
       - name: Run log fetch script
         run: python sub/fetcher.py 12
