@@ -108,6 +108,11 @@ async def fetch_segment(session, account_id, service_name, seg_id, start_ms, end
                             break
                         elif status in (429, 500, 502, 503, 504):
                             print(f"⚠️ {account_id}/{service_name} 第{seg_id}段 第{page+1}页 HTTP {status}, retry {attempt}")
+                            # 如果是从线程遇到 429，则放入暂停队列，等待恢复
+                            if status == 429 and paused_queue is not None:
+                                print(f"♻️ {account_id}/{service_name} 第{seg_id}段 暂停从线程，等待恢复")
+                                await paused_queue.put((seg_id, start_ms, end_ms))
+                                return all_logs  # 暂停当前段，返回已抓取的日志
                         elif status == 400:
                             print(f"⚠️ {account_id}/{service_name} 第{seg_id}段 第{page+1}页 400内容: {text[:500]}")
                             result = None
@@ -226,6 +231,7 @@ async def main_async():
 
 if __name__ == "__main__":
     asyncio.run(main_async())
+
 
 
 
