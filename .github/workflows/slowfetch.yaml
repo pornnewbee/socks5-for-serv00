@@ -1,6 +1,10 @@
 name: slowfetch all
 
 on:
+  schedule:
+    # 每天 UTC 0:00 和 0:15 运行
+    - cron: "0 0 * * *"
+    - cron: "15 0 * * *"
   workflow_dispatch:
 
 jobs:
