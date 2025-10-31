@@ -1,0 +1,96 @@
+116.4.215.192	中国	广东	东莞		电信	AS134772		chinatelecom.com.cn
+183.193.114.248	中国	上海	上海		移动	AS24400		chinamobile.com
+183.197.151.23	中国	河北	廊坊		移动	AS24547		chinamobile.com
+111.36.179.165	中国	山东	临沂		移动	AS24444		chinamobile.com
+223.74.194.97	中国	广东	惠州		移动	AS9808		chinamobile.com
+111.58.52.187	中国	广西	南宁		移动	AS9808		chinamobile.com
+112.44.75.88	中国	四川	成都		移动	AS9808		chinamobile.com
+112.22.234.162	中国	江苏	苏州		移动	AS56046		chinamobile.com
+223.85.230.209	中国	四川	成都		移动	AS9808		chinamobile.com
+223.89.216.65	中国	河南	商丘		移动	AS24445		chinamobile.com
+183.228.153.173	中国	重庆	重庆		移动	AS9808		chinamobile.com
+183.197.3.179	中国	河北	保定		移动	AS24547		chinamobile.com
+120.221.13.75	中国	山东	济南		移动	AS9808		chinamobile.com
+49.65.138.60	中国	江苏	南京		电信	AS4134		chinatelecom.com.cn
+171.218.193.108	中国	四川	成都		电信	AS4134		chinatelecom.com.cn
+183.230.196.129	中国	重庆	重庆		移动	AS9808		chinamobile.com
+114.234.207.141	中国	江苏	徐州		电信	AS4134		chinatelecom.com.cn
+113.70.93.178	中国	广东	佛山		电信	AS136200		chinatelecom.com.cn
+111.29.163.90	中国	海南	海口		移动	AS9808		chinamobile.com
+123.168.226.153	中国	山东	潍坊		电信	AS4134		chinatelecom.com.cn
+220.197.5.150	中国	贵州			联通	AS4837		chinaunicom.com
+203.156.236.138	中国	上海	上海		电信	AS4812		chinatelecom.com.cn
+125.47.241.130	中国	河南	开封		联通	AS4837		chinaunicom.com
+223.10.150.80	中国	山西	忻州		电信	AS4134		chinatelecom.com.cn
+115.63.134.84	中国	河南	洛阳		联通	AS4837		chinaunicom.com
+117.182.249.147	中国	广西	河池		移动	AS9808		chinamobile.com
+27.219.203.47	中国	山东	青岛		联通	AS4837		chinaunicom.com
+121.30.140.100	中国	山西	大同		联通	AS4837		chinaunicom.com
+117.28.96.225	中国	福建	厦门		电信	AS4134		chinatelecom.com.cn
+36.1.82.108	中国	海南			电信	AS151058		chinatelecom.com.cn
+120.221.11.5	中国	山东	济南		移动	AS9808		chinamobile.com
+115.202.153.83	中国	浙江	台州		电信	AS4134		chinatelecom.com.cn
+27.206.95.170	中国	山东	菏泽		联通	AS4837		chinaunicom.com
+58.222.138.110	中国	江苏	泰州		电信	AS4134		chinatelecom.com.cn
+117.28.225.158	中国	福建	福州		电信	AS4809		chinatelecom.com.cn
+117.178.10.81	中国	江西	赣州		移动	AS56045		chinamobile.com
+223.74.129.110	中国	广东	惠州		移动	AS9808		chinamobile.com
+112.112.104.52	中国	云南	昆明		电信	AS4134		chinatelecom.com.cn
+113.77.254.86	中国	广东	东莞		电信	AS134772		chinatelecom.com.cn
+112.37.141.105	中国	山东	聊城		移动	AS24444		chinamobile.com
+183.226.82.100	中国	重庆	重庆		移动	AS9808		chinamobile.com
+115.199.76.56	中国	浙江	杭州		电信	AS4134		chinatelecom.com.cn
+112.38.58.206	中国	山东	聊城		移动	AS24444		chinamobile.com
+116.141.55.221	中国	吉林	吉林市		联通	AS4837		chinaunicom.com
+112.67.202.131	中国	海南	海口		电信	AS151058		chinatelecom.com.cn
+123.12.209.106	中国	河南	济源		联通	AS4837		chinaunicom.com
+110.53.26.123	中国	湖南	常德		联通	AS4837		chinaunicom.com
+61.152.193.34	中国	上海	上海		电信	AS4812		chinatelecom.com.cn
+59.60.0.130	中国	福建	福州		电信	AS4809		chinatelecom.com.cn
+120.208.243.48	中国	山西	朔州		移动	AS56042		chinamobile.com
+125.119.134.154	中国	浙江	杭州		电信	AS4134		chinatelecom.com.cn
+123.168.217.160	中国	山东	潍坊		电信	AS4134		chinatelecom.com.cn
+39.144.194.188	中国	湖南	长沙		移动	AS56047		chinamobile.com
+1.192.59.82	中国	河南	郑州		电信	AS4134		chinatelecom.com.cn
+120.231.206.181	中国	广东	深圳		移动	AS9808		chinamobile.com
+223.160.187.106	中国	四川			移动	AS9808		chinabtn.com
+112.23.153.34	中国	江苏	南通		移动	AS56046		chinamobile.com
+112.48.32.10	中国	福建	厦门		移动	AS9808		chinamobile.com
+125.43.76.168	中国	河南			联通	AS4837		chinaunicom.com
+223.104.78.101	中国	广东	惠州		移动	AS56040		chinamobile.com
+36.143.24.218	中国	河北	保定		移动	AS24547		chinamobile.com
+39.144.86.233	中国	河北	保定		移动	AS24547		chinamobile.com
+58.56.65.249	中国	山东	济南		电信	AS4134		chinatelecom.com.cn
+117.28.225.147	中国	福建	福州		电信	AS4809		chinatelecom.com.cn
+117.187.127.142	中国	贵州	黔西南布依族苗族自治州		移动	AS9808		chinamobile.com
+220.200.127.66	中国	广西			联通	AS4837		chinaunicom.com
+61.152.143.34	中国	上海	上海		电信	AS4812		chinatelecom.com.cn
+58.56.65.217	中国	山东	济南		电信	AS4134		chinatelecom.com.cn
+123.168.226.25	中国	山东	潍坊		电信	AS4134		chinatelecom.com.cn
+125.43.76.132	中国	河南			联通	AS4837		chinaunicom.com
+61.152.197.154	中国	上海	上海		电信	AS4812		chinatelecom.com.cn
+61.152.197.34	中国	上海	上海		电信	AS4812		chinatelecom.com.cn
+106.34.17.76	中国	河南			电信	AS4134		chinatelecom.com.cn
+117.187.127.134	中国	贵州	黔西南布依族苗族自治州		移动	AS9808		chinamobile.com
+58.56.65.57	中国	山东	济南		电信	AS4134		chinatelecom.com.cn
+123.168.237.25	中国	山东	潍坊		电信	AS4134		chinatelecom.com.cn
+113.128.205.113	中国	山东	济南		电信	AS4134		chinatelecom.com.cn
+58.56.65.121	中国	山东	济南		电信	AS4134		chinatelecom.com.cn
+58.56.65.89	中国	山东	济南		电信	AS4134		chinatelecom.com.cn
+116.8.164.99	中国	广西			电信	AS4134		chinatelecom.com.cn
+61.129.101.34	中国	上海	上海		电信	AS4812		chinatelecom.com.cn
+122.226.131.133	中国	浙江	台州		电信	AS4134		chinatelecom.com.cn
+112.51.191.171	中国	福建	漳州		移动	AS9808		chinamobile.com
+123.166.66.105	中国	黑龙江	哈尔滨		电信	AS4134		chinatelecom.com.cn
+123.168.226.89	中国	山东	潍坊		电信	AS4134		chinatelecom.com.cn
+120.221.11.53	中国	山东	济南		移动	AS9808		chinamobile.com
+120.221.13.91	中国	山东	济南		移动	AS9808		chinamobile.com
+58.56.65.25	中国	山东	济南		电信	AS4134		chinatelecom.com.cn
+123.168.237.217	中国	山东	潍坊		电信	AS4134		chinatelecom.com.cn
+113.128.205.81	中国	山东	济南		电信	AS4134		chinatelecom.com.cn
+113.128.205.209	中国	山东	济南		电信	AS4134		chinatelecom.com.cn
+120.221.100.217	中国	山东	济南		移动	AS9808		chinamobile.com
+120.221.13.67	中国	山东	济南		移动	AS9808		chinamobile.com
+120.221.13.36	中国	山东	济南		移动	AS9808		chinamobile.com
+120.221.100.221	中国	山东	济南		移动	AS9808		chinamobile.com
+218.26.154.84	中国	山西	太原		联通	AS4837		chinaunicom.com
