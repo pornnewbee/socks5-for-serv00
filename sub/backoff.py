@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, timezone
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # ===================== 配置区 =====================
-SEGMENTS_PER_DAY = 24              # 每天拆成几段
+SEGMENTS_PER_DAY = 48              # 每天拆成几段
 MAX_RETRIES = 5                   # 单页请求最大重试次数
 BACKOFF = 1                        # 重试间隔秒，0 表示不限速
 MAX_CONCURRENT_ACCOUNTS = 1        # 同时查询账户数
@@ -69,7 +69,7 @@ def split_timeframes(date_str, segments=SEGMENTS_PER_DAY):
 
 
 def fetch_segment(account_id, service_name, seg_id, start_ms, end_ms):
-    """抓取单段日志（分页 + 自动重试）"""
+    """抓取单段日志（分页 + 自动重试，任何错误都会重试）"""
     all_logs = {}
     offset = None
     page = 0
@@ -105,26 +105,29 @@ def fetch_segment(account_id, service_name, seg_id, start_ms, end_ms):
                     timeout=15
                 )
                 if resp.ok:
-                    break
+                    break  # 正常返回才退出重试循环
                 else:
                     print(f"⚠️ {account_id}/{service_name} 第{seg_id}段 第{page+1}页 HTTP {resp.status_code}")
-                    if resp.status_code == 400:
-                        print(f"⚠️ 400 内容: {resp.text[:500]}")
-                        return all_logs  # 400 是请求错误，不重试
+                    print(f"⚠️ 返回内容: {resp.text[:300]}")
             except requests.RequestException as e:
                 print(f"❌ {account_id}/{service_name} 第{seg_id}段 第{page+1}页 网络错误: {e}")
 
-            # 线性退避：0.5s、1s、1.5s……最多 10s
+            # 所有错误都重试（包括 400）
             delay = min(0.5 * attempt, 10)
             print(f"⏳ 等待 {delay:.1f}s 后重试 (第 {attempt} 次)")
             time.sleep(delay)
             attempt += 1
 
+        # 尝试解析 JSON
         try:
             result = resp.json()
-        except Exception:
-            print(f"❌ {account_id}/{service_name} 第{seg_id}段 JSON 解析失败")
-            return all_logs
+        except Exception as e:
+            print(f"❌ {account_id}/{service_name} 第{seg_id}段 JSON 解析失败: {e}")
+            delay = min(0.5 * attempt, 10)
+            print(f"⏳ 等待 {delay:.1f}s 后重试 (第 {attempt} 次)")
+            time.sleep(delay)
+            attempt += 1
+            continue  # 重新进入请求循环
 
         invocations = result.get("result", {}).get("invocations", {})
         if not invocations:
@@ -134,7 +137,7 @@ def fetch_segment(account_id, service_name, seg_id, start_ms, end_ms):
         page += 1
         print(f"✅ {account_id}/{service_name} 第{seg_id}段 第{page}页 {len(invocations)}条日志")
 
-        # 提取下一个 offset
+        # 提取 offset
         offset = None
         for req_id in reversed(list(invocations.keys())):
             logs_list = invocations[req_id]
@@ -147,6 +150,7 @@ def fetch_segment(account_id, service_name, seg_id, start_ms, end_ms):
             break
 
     return all_logs
+
 
 
 
