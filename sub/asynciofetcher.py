@@ -11,8 +11,6 @@ SEGMENTS_PER_DAY = 48                  # 每天拆成几段
 MAX_RETRIES = 5                        # 单页请求最大重试次数
 BACKOFF = 0                             # 重试基数秒，0 表示不限速
 MAX_CONCURRENT_ACCOUNTS = 1             # 同时查询账户数
-MAX_CONCURRENT_REQUESTS_PER_ACCOUNT = 20 # 每个账户内部同时发出的请求数
-MAX_CONCURRENT_REQUESTS_GLOBAL = 40      # 全局同时发出的请求数
 FOLLOWER_START_INTERVAL = 1             # 从线程启动间隔秒
 FOLLOWER_RECOVERY_INTERVAL = 1          # 从线程恢复任务间隔秒
 # ==================================================
@@ -100,7 +98,6 @@ async def fetch_segment(session, account_id, service_name, seg_id, start_ms, end
         attempt = 1
         while True:
             try:
-                async with sem_account, sem_global:
                     async with session.post(URL_TEMPLATE.format(account_id=account_id),
                                             headers=HEADERS, json=data, timeout=15) as resp:
                         status = resp.status
@@ -162,7 +159,7 @@ async def fetch_segment(session, account_id, service_name, seg_id, start_ms, end
 
 
 async def fetch_account(account_id, service_name, dates, sem_global: asyncio.Semaphore):
-    sem_account = asyncio.Semaphore(MAX_CONCURRENT_REQUESTS_PER_ACCOUNT)
+    sem_account = asyncio.Semaphore(float("inf"))
     async with aiohttp.ClientSession() as session:
         for date_str in dates:
             print(f"\n===== 抓取 {account_id}/{service_name} 的 {date_str} 日日志（UTC） =====")
@@ -224,7 +221,7 @@ async def main_async():
     print(f"👥 目标账户: {', '.join(accounts.keys())}")
     dates = get_date_list(str(selected_days))
 
-    sem_global = asyncio.Semaphore(MAX_CONCURRENT_REQUESTS_GLOBAL)
+    sem_global = asyncio.Semaphore(float("inf"))
 
     # 控制同时查询账户数
     account_list = list(accounts.items())
@@ -236,6 +233,7 @@ async def main_async():
 
 if __name__ == "__main__":
     asyncio.run(main_async())
+
 
 
 
