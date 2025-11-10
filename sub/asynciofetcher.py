@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, timezone
 
 # ===================== 配置区 =====================
 SEGMENTS_PER_DAY = 48                  # 每天拆成几段
-MAX_RETRIES = 5                        # 单页请求最大重试次数
+MAX_RETRIES = 5                        # 单页请求最大重试次数 未使用
 BACKOFF = 0                             # 重试基数秒，0 表示不限速
 MAX_CONCURRENT_ACCOUNTS = 1             # 同时查询账户数
 FOLLOWER_START_INTERVAL = 1             # 从线程启动间隔秒
@@ -233,4 +233,5 @@ async def main_async():
 
 if __name__ == "__main__":
     asyncio.run(main_async())
+
 
