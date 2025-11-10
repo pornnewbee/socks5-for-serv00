@@ -68,7 +68,7 @@ def split_timeframes(date_str, segments=SEGMENTS_PER_DAY):
     return ranges
 
 
-async def fetch_segment(session, account_id, service_name, seg_id, start_ms, end_ms, sem_account, sem_global, paused_queue=None):
+async def fetch_segment(session, account_id, service_name, seg_id, start_ms, end_ms, paused_queue=None):
     """抓取单段日志（分页 + 无限重试 + 线性退避 + 安全解析）"""
     all_logs = {}
     offset = None
@@ -170,7 +170,7 @@ async def fetch_account(account_id, service_name, dates, sem_global: asyncio.Sem
 
             # 主线程抓第一段
             main_seg = pending_segments.pop(0)
-            main_logs = await fetch_segment(session, account_id, service_name, 1, *main_seg, sem_account, sem_global, paused_queue)
+            main_logs = await fetch_segment(session, account_id, service_name, 1, *main_seg, paused_queue)
             all_logs.update(main_logs)
 
             # 从线程抓剩余段
@@ -233,3 +233,4 @@ async def main_async():
 
 if __name__ == "__main__":
     asyncio.run(main_async())
+
