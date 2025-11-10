@@ -8,8 +8,6 @@ from datetime import datetime, timedelta, timezone
 
 # ===================== 配置区 =====================
 SEGMENTS_PER_DAY = 48                  # 每天拆成几段
-MAX_RETRIES = 5                        # 单页请求最大重试次数 未使用
-BACKOFF = 0                             # 重试基数秒，0 表示不限速
 MAX_CONCURRENT_ACCOUNTS = 1             # 同时查询账户数
 FOLLOWER_START_INTERVAL = 1             # 从线程启动间隔秒
 FOLLOWER_RECOVERY_INTERVAL = 1          # 从线程恢复任务间隔秒
@@ -44,7 +42,7 @@ HEADERS = {
     "cookie": LOCAL_COOKIE,
 }
 
-
+# ===================== 工具函数 =====================
 def get_date_list(arg: str):
     n = int(arg) if arg and arg.isdigit() else 1
     today = datetime.now(timezone.utc).date()
@@ -67,11 +65,10 @@ def split_timeframes(date_str, segments=SEGMENTS_PER_DAY):
         ranges.append((seg_start, seg_end))
     return ranges
 
-
-async def fetch_segment(session, account_id, service_name, seg_id, start_ms, end_ms, paused_queue=None):
-    """抓取单段日志（分页 + 无限重试 + 线性退避 + 安全解析）"""
+# ===================== 异步抓取函数 =====================
+async def fetch_segment(session, account_id, service_name, seg_id, start_ms, end_ms, paused_queue=None, offset=None):
+    """抓取单段日志（分页 + 无限重试 + 线性退避 + 支持 offset 恢复）"""
     all_logs = {}
-    offset = None
     page = 0
 
     base_data = {
@@ -83,9 +80,7 @@ async def fetch_segment(session, account_id, service_name, seg_id, start_ms, end
             "filters": [
                 {"key": "$metadata.service", "type": "string", "value": service_name, "operation": "eq"}
             ],
-            "calculations": [],
-            "groupBys": [],
-            "havings": []
+            "calculations": [], "groupBys": [], "havings": []
         },
         "timeframe": {"from": start_ms, "to": end_ms}
     }
@@ -98,22 +93,22 @@ async def fetch_segment(session, account_id, service_name, seg_id, start_ms, end
         attempt = 1
         while True:
             try:
-                    async with session.post(URL_TEMPLATE.format(account_id=account_id),
-                                            headers=HEADERS, json=data, timeout=15) as resp:
-                        status = resp.status
-                        text = await resp.text()
-                        if status == 200:
-                            result = await resp.json()
-                            break  # 成功退出重试循环
-                        else:
-                            print(f"⚠️ {account_id}/{service_name} 第{seg_id}段 第{page+1}页 HTTP {status}")
-                            print(f"⚠️ 返回内容: {text[:300]}")
+                async with session.post(URL_TEMPLATE.format(account_id=account_id),
+                                        headers=HEADERS, json=data, timeout=15) as resp:
+                    status = resp.status
+                    text = await resp.text()
+                    if status == 200:
+                        result = await resp.json()
+                        break
+                    else:
+                        print(f"⚠️ {account_id}/{service_name} 第{seg_id}段 第{page+1}页 HTTP {status}")
+                        print(f"⚠️ 返回内容: {text[:300]}")
 
-                            # 遇到 429 的从线程任务暂时挂起
-                            if status == 429 and paused_queue is not None:
-                                print(f"♻️ {account_id}/{service_name} 第{seg_id}段暂停从线程，等待恢复")
-                                await paused_queue.put((seg_id, start_ms, end_ms))
-                                return all_logs  # 暂停当前段，返回已抓取日志
+                        # 遇到 429 暂停当前段，保存 offset
+                        if status == 429 and paused_queue is not None:
+                            print(f"♻️ {account_id}/{service_name} 第{seg_id}段暂停，等待恢复")
+                            await paused_queue.put((seg_id, start_ms, end_ms, offset))
+                            return all_logs
             except Exception as e:
                 print(f"❌ {account_id}/{service_name} 第{seg_id}段 第{page+1}页 异常: {e}")
 
@@ -133,7 +128,7 @@ async def fetch_segment(session, account_id, service_name, seg_id, start_ms, end
             print(f"❌ {account_id}/{service_name} 第{seg_id}段 JSON 解析异常: {e}")
             await asyncio.sleep(min(0.5 * attempt, 10))
             attempt += 1
-            continue  # 继续重试
+            continue
 
         if not invocations:
             break
@@ -156,10 +151,8 @@ async def fetch_segment(session, account_id, service_name, seg_id, start_ms, end
 
     return all_logs
 
-
-
-async def fetch_account(account_id, service_name, dates, sem_global: asyncio.Semaphore):
-    sem_account = asyncio.Semaphore(float("inf"))
+# ===================== 账户抓取 =====================
+async def fetch_account(account_id, service_name, dates):
     async with aiohttp.ClientSession() as session:
         for date_str in dates:
             print(f"\n===== 抓取 {account_id}/{service_name} 的 {date_str} 日日志（UTC） =====")
@@ -177,7 +170,7 @@ async def fetch_account(account_id, service_name, dates, sem_global: asyncio.Sem
             tasks = {}
             for seg_id, (start_ms, end_ms) in enumerate(pending_segments, 2):
                 await asyncio.sleep(FOLLOWER_START_INTERVAL)
-                task = asyncio.create_task(fetch_segment(session, account_id, service_name, seg_id, start_ms, end_ms, sem_account, sem_global, paused_queue))
+                task = asyncio.create_task(fetch_segment(session, account_id, service_name, seg_id, start_ms, end_ms, paused_queue))
                 tasks[seg_id] = task
 
             # 循环恢复暂停任务
@@ -193,9 +186,9 @@ async def fetch_account(account_id, service_name, dates, sem_global: asyncio.Sem
 
                 # 恢复暂停任务
                 while not paused_queue.empty():
-                    seg_id, start_ms, end_ms = await paused_queue.get()
-                    print(f"♻️ {account_id}/{service_name} 第{seg_id}段恢复任务")
-                    task = asyncio.create_task(fetch_segment(session, account_id, service_name, seg_id, start_ms, end_ms, sem_account, sem_global, paused_queue))
+                    seg_id, start_ms, end_ms, offset = await paused_queue.get()
+                    print(f"♻️ {account_id}/{service_name} 第{seg_id}段恢复任务 (offset={offset})")
+                    task = asyncio.create_task(fetch_segment(session, account_id, service_name, seg_id, start_ms, end_ms, paused_queue, offset))
                     tasks[seg_id] = task
                     await asyncio.sleep(FOLLOWER_RECOVERY_INTERVAL)
 
@@ -207,7 +200,7 @@ async def fetch_account(account_id, service_name, dates, sem_global: asyncio.Sem
                 json.dump({"invocations": all_logs}, f, ensure_ascii=False, indent=2)
             print(f"📦 {account_id} 已保存 {len(all_logs)} 条日志 -> {out_file}")
 
-
+# ===================== 主程序 =====================
 async def main_async():
     args = sys.argv[1:]
     selected_days = next((int(a) for a in args if a.isdigit()), 1)
@@ -221,17 +214,12 @@ async def main_async():
     print(f"👥 目标账户: {', '.join(accounts.keys())}")
     dates = get_date_list(str(selected_days))
 
-    sem_global = asyncio.Semaphore(float("inf"))
-
     # 控制同时查询账户数
     account_list = list(accounts.items())
     for i in range(0, len(account_list), MAX_CONCURRENT_ACCOUNTS):
         batch = account_list[i:i + MAX_CONCURRENT_ACCOUNTS]
-        tasks = [fetch_account(acc_id, svc_name, dates, sem_global) for acc_id, svc_name in batch]
+        tasks = [fetch_account(acc_id, svc_name, dates) for acc_id, svc_name in batch]
         await asyncio.gather(*tasks)
-
 
 if __name__ == "__main__":
     asyncio.run(main_async())
-
-
