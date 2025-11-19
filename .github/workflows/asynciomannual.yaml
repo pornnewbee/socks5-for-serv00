@@ -23,7 +23,7 @@ jobs:
           pip install requests aiohttp
 
       - name: Run log fetch script
-        run: python sub/aiohttptest-f.py -68dc01339307efd97950a14af6bd28cd -3
+        run: python sub/aiohttptest-f.py -68dc01339307efd97950a14af6bd28cd -4
 
       - name: Upload Logs
         uses: actions/upload-artifact@v4
