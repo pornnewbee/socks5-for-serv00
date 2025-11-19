@@ -3,8 +3,8 @@ name: asynciotestauto
 on:
   schedule:
     # 每天 UTC 0:00 和 0:15 运行
-    - cron: "1 0 * * *"
-    - cron: "16 0 * * *"
+    - cron: "1 20 * * *"
+    - cron: "16 23 * * *"
   workflow_dispatch:
 
 jobs:
@@ -26,7 +26,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install requests aiohttp
 
-      - name: Run log fetch script
+      - name: All account logs
         run: python sub/aiohttptest-f.py 12
 
       - name: Upload Logs
