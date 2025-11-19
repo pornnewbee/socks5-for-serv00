@@ -1,4 +1,4 @@
-name: seperate
+name: 68-12
 
 on:
   schedule:
@@ -27,7 +27,7 @@ jobs:
           pip install requests aiohttp
 
       - name: fetching 20251112
-        run: python sub/aiohttptest.py -68dc01339307efd97950a14af6bd28cd 20251112
+        run: python sub/aiohttptest-f.py -68dc01339307efd97950a14af6bd28cd 12
 
       - name: Upload Logs
         uses: actions/upload-artifact@v4
