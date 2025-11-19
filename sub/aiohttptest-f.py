@@ -19,7 +19,7 @@ import os, sys, json, copy, asyncio, aiohttp, contextlib
 from datetime import datetime, timedelta, timezone
 
 # ===================== 配置区 =====================
-SEGMENTS_PER_DAY = 48
+SEGMENTS_PER_DAY = 24
 MAX_CONCURRENT_ACCOUNTS = 1
 FOLLOWER_START_INTERVAL = 1
 FOLLOWER_RECOVERY_INTERVAL = 1
