@@ -1,4 +1,4 @@
-name: asynciotest
+name: asynciotestauto
 
 on:
   schedule:
