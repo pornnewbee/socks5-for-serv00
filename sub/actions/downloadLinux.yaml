@@ -1,0 +1,19 @@
+name: Download Linux Master Zip
+
+on:
+  workflow_dispatch:  # 手动触发工作流
+
+jobs:
+  download_file:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Download Linux master.zip
+        run: |
+          curl -L -o linux-master.zip https://github.com/torvalds/linux/archive/refs/heads/master.zip
+          
+      - name: Unzip the downloaded file
+        run: unzip linux-master.zip
