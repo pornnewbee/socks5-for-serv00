@@ -1,10 +1,6 @@
 name: 68-12days
 
 on:
-  schedule:
-    # 每天 UTC 0:00 和 0:15 运行
-    - cron: "1 0 * * *"
-    - cron: "16 0 * * *"
   workflow_dispatch:
 
 jobs:
@@ -27,7 +23,7 @@ jobs:
           pip install requests aiohttp
 
       - name: fetching d87558662199591148a0bcac9ca935f7 2
-        run: python sub/aiohttptest-f.py -68dc01339307efd97950a14af6bd28cd 2
+        run: python sub/aiohttptest-f.py -68dc01339307efd97950a14af6bd28cd 12
 
       - name: Upload Logs
         uses: actions/upload-artifact@v4
