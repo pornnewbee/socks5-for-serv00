@@ -1,7 +1,7 @@
 name: Download Linux Master Zip
 
 on:
-  workflow_dispatch:  # 手动触发工作流
+  workflow_dispatch:   # 手动触发
 
 jobs:
   download_file:
@@ -13,7 +13,10 @@ jobs:
 
       - name: Download Linux master.zip
         run: |
-          curl -L -o linux-master.zip https://github.com/torvalds/linux/archive/refs/heads/master.zip
-          
-      - name: Unzip the downloaded file
-        run: unzip linux-master.zip
+          curl -L -o master.zip https://github.com/torvalds/linux/archive/refs/heads/master.zip
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-master-zip
+          path: master.zip
