@@ -3,11 +3,11 @@ name: Download and Upload Artifact
 on:
   workflow_dispatch:
     inputs:
-      file_url: "https://github.com/torvalds/linux/archive/refs/heads/master.zip"
-        description: "URL of the file to download"
+      file_url:
+        description: 'URL of the file to download'
         required: true
-      artifact_name: "file"
-        description: "Name of the artifact to upload"
+      artifact_name:
+        description: 'Name of the artifact to upload'
         required: true
 
 jobs:
