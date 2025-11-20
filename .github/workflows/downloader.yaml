@@ -4,10 +4,10 @@ on:
   workflow_dispatch:
     inputs:
       file_url: "https://github.com/torvalds/linux/archive/refs/heads/master.zip"
-        description: 'URL of the file to download'
+        description: "URL of the file to download"
         required: true
       artifact_name: "file"
-        description: 'Name of the artifact to upload'
+        description: "Name of the artifact to upload"
         required: true
 
 jobs:
@@ -15,15 +15,12 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # Checkout repo (可选)
       - name: Checkout repository
         uses: actions/checkout@v3
 
-      # 安装 curl
       - name: Install curl
         run: sudo apt-get update && sudo apt-get install -y curl
 
-      # 下载文件
       - name: Download file
         run: |
           echo "Downloading file from ${{ github.event.inputs.file_url }}"
@@ -31,9 +28,8 @@ jobs:
           curl -L -o "$filename" "${{ github.event.inputs.file_url }}"
           echo "Downloaded file saved as $filename"
 
-      # 上传 artifact
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ github.event.inputs.artifact_name }}
-          path: ${{ github.event.inputs.file_url }} # 这里使用下载后的文件名
+          path: $filename
