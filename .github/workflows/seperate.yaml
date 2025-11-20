@@ -26,8 +26,8 @@ jobs:
           python -m pip install --upgrade pip
           pip install requests aiohttp
 
-      - name: fetching d87558662199591148a0bcac9ca935f7 12
-        run: python sub/aiohttptest-f.py -68dc01339307efd97950a14af6bd28cd 12
+      - name: fetching d87558662199591148a0bcac9ca935f7 2
+        run: python sub/aiohttptest-f.py -68dc01339307efd97950a14af6bd28cd 2
 
       - name: Upload Logs
         uses: actions/upload-artifact@v4
