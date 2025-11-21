@@ -52,7 +52,7 @@ async def stats_printer():
 async def main():
     async with aiohttp.ClientSession() as session:
         # 启动 worker
-        workers = [asyncio.create_task(worker(session, w)) for w in range(999999999999999)]
+        workers = [asyncio.create_task(worker(session, w)) for w in range(99999)]
         # 启动统计任务
         stats_task = asyncio.create_task(stats_printer())
         # 等待所有任务完成
