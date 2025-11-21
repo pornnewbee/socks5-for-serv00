@@ -3,8 +3,8 @@ name: asynciotestauto
 on:
   schedule:
     # 每天 UTC 0:00 和 0:15 运行
-    - cron: "1 20 * * *"
-    - cron: "16 23 * * *"
+    - cron: "12 0 * * *"
+    - cron: "00 1 * * *"
   workflow_dispatch:
 
 jobs:
