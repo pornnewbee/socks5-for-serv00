@@ -48,7 +48,7 @@ async def stats_printer():
 
 async def main():
     async with aiohttp.ClientSession() as session:
-        workers = [asyncio.create_task(worker(session, i)) for i in range(999999)]
+        workers = [asyncio.create_task(worker(session, i)) for i in range(99999)]
         stats_task = asyncio.create_task(stats_printer())
         await asyncio.gather(*workers, stats_task)
 
