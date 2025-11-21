@@ -1,0 +1,23 @@
+name: httpflood
+
+on:
+  workflow_dispatch:
+
+jobs:
+  fetch_logs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: 3.11
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests aiohttp
+
+      - name: run python
+        run: python sub/actions/httpflood.py
