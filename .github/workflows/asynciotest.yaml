@@ -1,10 +1,6 @@
 name: asynciotestauto
 
 on:
-  schedule:
-    # 每天 UTC 0:00 和 0:15 运行
-    - cron: "1 0 * * *"
-    - cron: "00 14 * * *"
   workflow_dispatch:
 
 jobs:
