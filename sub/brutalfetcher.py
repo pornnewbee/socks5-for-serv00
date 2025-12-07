@@ -192,7 +192,13 @@ async def fetch_segment(session, account_id, service_name, segment):
 # 无限并发：日期 → 所有 segment 直接并发
 # ==========================================================
 async def fetch_account(account_id, service_name, dates):
-    async with aiohttp.ClientSession() as session:
+    timeout = aiohttp.ClientTimeout(
+        total=60,        # 整个请求生命周期最多 30 秒
+        sock_connect=10, # TCP 连接阶段最多 10 秒
+        sock_read=10     # 和服务器建立连接后，单次读操作等待最多 10 秒
+    )
+
+    async with aiohttp.ClientSession(timeout=timeout) as session:
         for date_str in dates:
             print(f"\n===== {account_id}/{service_name} {date_str} =====")
 
@@ -209,16 +215,17 @@ async def fetch_account(account_id, service_name, dates):
                     }
                 )
 
-            # 🔥 所有分段 **直接无限并发**
+            # 🔥 直接无限并发所有分段
             tasks = [
                 asyncio.create_task(
                     fetch_segment(session, account_id, service_name, seg)
                 )
                 for seg in segments
             ]
+
             await asyncio.gather(*tasks)
 
-            # 合并
+            # 合并所有段
             all_logs = {}
             for seg in segments:
                 all_logs.update(seg["data"])
@@ -228,6 +235,7 @@ async def fetch_account(account_id, service_name, dates):
                 json.dump({"invocations": all_logs}, f, ensure_ascii=False, indent=2)
 
             print(f"📦 {account_id} 保存 {len(all_logs)} 条日志 → {out}")
+
 
 
 # ==========================================================
