@@ -4,7 +4,7 @@
 import os, sys, json, copy, asyncio, aiohttp
 from datetime import datetime, timedelta, timezone
 
-SEGMENTS_PER_DAY = 24   # 每日划分的段数（保持你的原设定）
+SEGMENTS_PER_DAY = 8   # 每日划分的段数（保持你的原设定）
 
 ACCOUNTS_JSON = os.getenv("ACCOUNTS_JSON")
 if not ACCOUNTS_JSON:
