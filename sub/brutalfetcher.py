@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 # coding: utf-8
 
-import os, sys, json, copy, asyncio, aiohttp
+import os, sys, json, asyncio, aiohttp, time
 from datetime import datetime, timedelta, timezone
 
-SEGMENTS_PER_DAY = 8   # 每日划分的段数（保持你的原设定）
+SEGMENTS_PER_DAY = 8
 
 ACCOUNTS_JSON = os.getenv("ACCOUNTS_JSON")
 if not ACCOUNTS_JSON:
@@ -15,8 +15,8 @@ try:
     ACCOUNTS = json.loads(ACCOUNTS_JSON)
     if not isinstance(ACCOUNTS, dict):
         raise ValueError("ACCOUNTS_JSON must be dict")
-except Exception as e:
-    print("❌ ACCOUNTS_JSON 内容无效：", e)
+except Exception as err:
+    print("❌ ACCOUNTS_JSON 内容无效：", err)
     sys.exit(1)
 
 CF_COOKIE = os.getenv("CF_COOKIE") or ""
@@ -45,6 +45,7 @@ HEADERS = {
 # ==========================================================
 def get_date_list(arg: str):
     today = datetime.now(timezone.utc).date()
+
     if arg.isdigit() and len(arg) == 8:
         return [arg]
 
@@ -62,30 +63,33 @@ def get_date_list(arg: str):
 
 def split_timeframes(date_str, segments=SEGMENTS_PER_DAY):
     dt = datetime.strptime(date_str, "%Y%m%d")
-    start = datetime(dt.year, dt.month, dt.day, 0, 0, 0, tzinfo=timezone.utc)
+    start = datetime(dt.year, dt.month, dt.day, tzinfo=timezone.utc)
     end = start + timedelta(days=1) - timedelta(milliseconds=1)
+
     start_ms = int(start.timestamp() * 1000)
     end_ms = int(end.timestamp() * 1000)
+
     step = (end_ms - start_ms) // segments
     arr = []
+
     for i in range(segments):
         s = start_ms + i * step
         e = s + step if i < segments - 1 else end_ms
         arr.append((s, e))
+
     return arr
 
 
 def linear_delay(attempt: int):
     return min(0.5 * attempt, 10.0)
 
-
 # ==========================================================
-# 核心：单段抓取（无限并发版本）
+# 单段抓取
 # ==========================================================
 async def fetch_segment(session, account_id, service_name, segment):
     seg_id = segment["seg_id"]
-    s = segment["start_ms"]
-    e = segment["end_ms"]
+    start_ms = segment["start_ms"]
+    end_ms = segment["end_ms"]
 
     all_logs = {}
     offset = None
@@ -93,7 +97,7 @@ async def fetch_segment(session, account_id, service_name, segment):
     page = 0
 
     while True:
-        data = {
+        payload = {
             "view": "invocations",
             "queryId": "workers-logs-invocations",
             "limit": 100,
@@ -111,71 +115,88 @@ async def fetch_segment(session, account_id, service_name, segment):
                 "groupBys": [],
                 "havings": [],
             },
-            "timeframe": {"from": s, "to": e},
+            "timeframe": {"from": start_ms, "to": end_ms},
         }
 
         if offset:
-            data["offset"] = offset
+            payload["offset"] = offset
+
+        req_start = time.monotonic()
 
         try:
             async with session.post(
                 URL_TEMPLATE.format(account_id=account_id),
                 headers=HEADERS,
-                json=data
+                json=payload
             ) as resp:
+                elapsed = time.monotonic() - req_start
                 status = resp.status
                 text = await resp.text()
 
                 if status == 200:
                     attempt = 1
-                    try:
-                        result = await resp.json()
-                    except Exception:
-                        print(f"❌ {account_id}/{service_name} 段{seg_id} JSON解析错误")
-                        break
+                    result = json.loads(text)
 
                     inv = result.get("result", {}).get("invocations", {})
                     new_cnt = 0
+
                     for req_id, entries in inv.items():
                         if req_id not in all_logs:
                             all_logs[req_id] = entries
                             new_cnt += len(entries)
 
                     page += 1
-                    print(f"✅ {account_id}/{service_name} 段{seg_id} 第{page}页 获取 {new_cnt} 条日志")
+                    print(
+                        f"✅ {account_id}/{service_name} 段{seg_id} "
+                        f"第{page}页 获取 {new_cnt} 条日志 "
+                        f"({elapsed:.2f}s)"
+                    )
 
-                    # 获取下一页 offset
                     offset = None
                     for req_id in reversed(list(inv.keys())):
                         last_meta = inv[req_id][-1].get("$metadata", {})
                         offset = last_meta.get("id")
                         if offset:
                             break
+
                     if not offset:
                         break
 
                 elif status == 429:
                     delay = linear_delay(attempt)
-                    print(f"⛔ {account_id}/{service_name} 段{seg_id} 429 重试 {delay:.1f}s")
+                    print(
+                        f"⛔ {account_id}/{service_name} 段{seg_id} "
+                        f"429 ({elapsed:.2f}s)，{delay:.1f}s 后重试"
+                    )
                     await asyncio.sleep(delay)
                     attempt += 1
-                    continue
 
                 else:
                     delay = linear_delay(attempt)
-                    print(f"⚠️ {account_id}/{service_name} 段{seg_id} HTTP {status}: {text[:200]}，{delay:.1f}s 后重试")
+                    print(
+                        f"⚠️ {account_id}/{service_name} 段{seg_id} "
+                        f"HTTP {status} ({elapsed:.2f}s): {text[:120]}，"
+                        f"{delay:.1f}s 后重试"
+                    )
                     await asyncio.sleep(delay)
                     attempt += 1
-                    continue
 
-        except asyncio.TimeoutError as e:
-            print(f"⏱ {account_id}/{service_name} 段{seg_id} 请求超时: {e}，{linear_delay(attempt):.1f}s 后重试")
-            await asyncio.sleep(linear_delay(attempt))
+        except asyncio.TimeoutError as err:
+            delay = linear_delay(attempt)
+            print(
+                f"⏱ {account_id}/{service_name} 段{seg_id} 请求超时: {err}，"
+                f"{delay:.1f}s 后重试"
+            )
+            await asyncio.sleep(delay)
             attempt += 1
 
-        except aiohttp.ClientError as e:
-            print(f"❌ {account_id}/{service_name} 段{seg_id} 网络异常: {e}，{linear_delay(attempt):.1f}s 后重试")
-            await asyncio.sleep(linear_delay(attempt))
+        except aiohttp.ClientError as err:
+            delay = linear_delay(attempt)
+            print(
+                f"❌ {account_id}/{service_name} 段{seg_id} 网络异常: {err}，"
+                f"{delay:.1f}s 后重试"
+            )
+            await asyncio.sleep(delay)
             attempt += 1
 
     segment["data"] = all_logs
@@ -183,33 +204,41 @@ async def fetch_segment(session, account_id, service_name, segment):
 
 async def fetch_account(account_id, service_name, dates):
     timeout = aiohttp.ClientTimeout(
-        total=60,        # 整个请求生命周期最多 60 秒
-        sock_connect=10, # TCP 连接阶段最多 10 秒
-        sock_read=10     # 和服务器建立连接后，单次读操作最多等待 10 秒
+        total=60,
+        sock_connect=10,
+        sock_read=10
     )
 
     async with aiohttp.ClientSession(timeout=timeout) as session:
         for date_str in dates:
             print(f"\n===== {account_id}/{service_name} {date_str} =====")
+
             ranges = split_timeframes(date_str)
-            segments = [{"seg_id": i+1, "start_ms": s, "end_ms": e, "data": {}} for i, (s,e) in enumerate(ranges)]
-            tasks = [asyncio.create_task(fetch_segment(session, account_id, service_name, seg)) for seg in segments]
+            segments = [
+                {"seg_id": i + 1, "start_ms": s, "end_ms": e, "data": {}}
+                for i, (s, e) in enumerate(ranges)
+            ]
+
+            tasks = [
+                asyncio.create_task(
+                    fetch_segment(session, account_id, service_name, seg)
+                )
+                for seg in segments
+            ]
+
             await asyncio.gather(*tasks)
 
-            # 合并并保存
             all_logs = {}
             for seg in segments:
                 all_logs.update(seg["data"])
+
             out = f"{account_id}_invocations_{date_str}.json"
-            with open(out, "w", encoding="utf8") as f:
+            with open(out, "w", encoding="utf-8") as f:
                 json.dump({"invocations": all_logs}, f, ensure_ascii=False, indent=2)
+
             print(f"📦 {account_id} 保存 {len(all_logs)} 条日志 → {out}")
 
 
-
-# ==========================================================
-# 主程序
-# ==========================================================
 async def main_async():
     args = sys.argv[1:]
     selected_days = None
@@ -229,7 +258,7 @@ async def main_async():
     else:
         accounts = ACCOUNTS
 
-    dates = get_date_list(selected_days) if len(selected_days) != 8 else [selected_days]
+    dates = get_date_list(selected_days)
 
     print(f"📅 查询日期: {dates}")
     print(f"👥 账户数: {len(accounts)}")
