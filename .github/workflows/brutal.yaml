@@ -18,6 +18,9 @@ jobs:
       CF_COOKIE: ${{ secrets.CF_COOKIE }}
     steps:
       - uses: actions/checkout@v3
+      - run: |
+          sudo chmod 777 /mnt
+
 
       - name: Setup Python
         uses: actions/setup-python@v4
