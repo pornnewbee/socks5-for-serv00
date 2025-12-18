@@ -271,7 +271,7 @@ async def main_async():
 
     # 根据配置决定并发数
     if MAX_CONCURRENT_ACCOUNTS and MAX_CONCURRENT_ACCOUNTS > 0:
-    semaphore = asyncio.Semaphore(MAX_CONCURRENT_ACCOUNTS)
+        semaphore = asyncio.Semaphore(MAX_CONCURRENT_ACCOUNTS)
     else:
     # 0 = 不限并发（账户数即并发数）
     semaphore = asyncio.Semaphore(len(accounts))
