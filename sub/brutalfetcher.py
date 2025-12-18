@@ -246,7 +246,7 @@ async def fetch_account(account_id, service_name, dates):
                 
             gz_out = compress_and_remove_json(out)
             
-            print(f"📦 {account_id} 保存 {len(all_logs)} 条日志 → {out}")
+            print(f"📦 {account_id} 保存 {len(all_logs)} 条日志 → {gz_out}（已压缩）")
 
 
 async def main_async():
