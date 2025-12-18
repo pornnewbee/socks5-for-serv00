@@ -10,10 +10,11 @@ jobs:
     steps:
       - uses: actions/checkout@v3
       - run: |
-          echo hello
+          sudo chmod 777 /mnt
+          touch /mnt/test.txt
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: all-file              # 👈 artifactname
-          path: '**/*'         # 👈 
+          path: '/mnt/**'         # 👈 
