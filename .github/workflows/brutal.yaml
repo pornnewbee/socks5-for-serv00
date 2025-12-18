@@ -4,8 +4,11 @@ on:
   schedule:
     # 每天 UTC 0:00 和 0:15 运行
     - cron: "1 0 * * *"
-    - cron: "0 8 * * *"
-    - cron: "0 14 * * *"
+    - cron: "0 9 * * *"
+    - cron: "0 12 * * *"
+    - cron: "0 15 * * *"
+    - cron: "0 18 * * *"
+    - cron: "0 22 * * *"
   workflow_dispatch:
 
 jobs:
