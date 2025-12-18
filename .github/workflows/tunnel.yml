@@ -1,0 +1,53 @@
+name: tunnel
+
+on:
+  workflow_dispatch:
+
+jobs:
+  tunnel:
+    runs-on: ubuntu-latest
+
+    steps:
+      # 设置 SSH 服务器
+      - run: |
+          sudo sed -i 's/^#\?PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config
+          sudo sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config
+          echo "runner:runner" | sudo chpasswd
+          sudo systemctl restart ssh
+
+      # 安装 cloudflared
+      - run: |
+          curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 \
+            -o cloudflared
+          chmod +x cloudflared
+          sudo mv cloudflared /usr/local/bin/
+
+      # 获取外部 IP 地址
+      - name: Get External IP
+        run: |
+          echo "External IP: $(curl ifconfig.io)"
+
+      # 运行 TryCloudflare 隧道，并将生成的 URL 存储为环境变量
+      - name: Run tunnel
+        id: tunnel
+        run: |
+          # 启动 cloudflared 隧道，返回临时隧道的 URL
+          tunnel_url=$(cloudflared tunnel --url ssh://localhost:22 --no-autoupdate)
+          
+          # 提取并输出隧道的 URL
+          echo "Tunnel URL: $tunnel_url"
+          
+          # 存储隧道 URL 为环境变量，供后续步骤使用
+          echo "TUNNEL_URL=$tunnel_url" >> $GITHUB_ENV
+
+      # 输出隧道的 URL
+      - name: Display Tunnel URL
+        run: |
+          echo "The SSH Tunnel URL is: ${{ env.TUNNEL_URL }}"
+
+      # 在此步骤中你可以用 SSH 连接到生成的临时隧道
+      # 例如，使用 SSH 进行远程连接
+      #- name: SSH into the Tunnel
+      #  run: |
+      #    ssh -o StrictHostKeyChecking=no user@${{ env.TUNNEL_URL }}
+      #    ssh -o ProxyCommand="cloudflared access ssh --hostname ******.trycloudflare.com  " runner@localhost
