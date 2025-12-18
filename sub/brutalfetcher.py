@@ -5,6 +5,8 @@ import os, sys, json, asyncio, aiohttp, time, gzip, shutil
 from datetime import datetime, timedelta, timezone
 
 SEGMENTS_PER_DAY = 8
+OUTPUT_DIR = os.getenv("OUTPUT_DIR", "/mnt/cf-logs")
+os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 ACCOUNTS_JSON = os.getenv("ACCOUNTS_JSON")
 if not ACCOUNTS_JSON:
@@ -240,7 +242,11 @@ async def fetch_account(account_id, service_name, dates):
             for seg in segments:
                 all_logs.update(seg["data"])
 
-            out = f"{account_id}_invocations_{date_str}.json"
+            
+            out = os.path.join(
+                OUTPUT_DIR,
+                f"{account_id}_invocations_{date_str}.json"
+            )
             with open(out, "w", encoding="utf-8") as f:
                 json.dump({"invocations": all_logs}, f, ensure_ascii=False, indent=2)
                 
@@ -253,7 +259,7 @@ async def main_async():
     args = sys.argv[1:]
     selected_days = None
     selected_accounts = []
-
+    print(f"📂 输出目录: {OUTPUT_DIR}")
     for a in args:
         if a.startswith("-") and not a[1:].isdigit():
             selected_accounts.append(a[1:])
