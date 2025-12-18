@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 SEGMENTS_PER_DAY = 8
 # 同时查询的账户数量
 # 0 表示所有账户同时查询
-MAX_CONCURRENT_ACCOUNTS = 0
+MAX_CONCURRENT_ACCOUNTS = 1
 
 ACCOUNTS_JSON = os.getenv("ACCOUNTS_JSON")
 if not ACCOUNTS_JSON:
