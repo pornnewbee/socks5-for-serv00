@@ -273,8 +273,8 @@ async def main_async():
     if MAX_CONCURRENT_ACCOUNTS and MAX_CONCURRENT_ACCOUNTS > 0:
         semaphore = asyncio.Semaphore(MAX_CONCURRENT_ACCOUNTS)
     else:
-    # 0 = 不限并发（账户数即并发数）
-    semaphore = asyncio.Semaphore(len(accounts))
+        # 0 = 不限并发（账户数即并发数）
+        semaphore = asyncio.Semaphore(len(accounts))
 
     tasks = []
     for acc_id, svc in accounts.items():
