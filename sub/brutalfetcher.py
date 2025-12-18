@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # coding: utf-8
 
-import os, sys, json, asyncio, aiohttp, time
+import os, sys, json, asyncio, aiohttp, time, gzip, shutil
 from datetime import datetime, timedelta, timezone
 
 SEGMENTS_PER_DAY = 8
@@ -43,6 +43,14 @@ HEADERS = {
 # ==========================================================
 # 工具函数
 # ==========================================================
+def compress_and_remove_json(path: str):
+    gz_path = path + ".gz"
+    with open(path, "rb") as f_in, gzip.open(gz_path, "wb") as f_out:
+        shutil.copyfileobj(f_in, f_out)
+
+    os.remove(path)
+    return gz_path
+
 def get_date_list(arg: str):
     today = datetime.now(timezone.utc).date()
 
@@ -235,7 +243,9 @@ async def fetch_account(account_id, service_name, dates):
             out = f"{account_id}_invocations_{date_str}.json"
             with open(out, "w", encoding="utf-8") as f:
                 json.dump({"invocations": all_logs}, f, ensure_ascii=False, indent=2)
-
+                
+            gz_out = compress_and_remove_json(out)
+            
             print(f"📦 {account_id} 保存 {len(all_logs)} 条日志 → {out}")
 
 
