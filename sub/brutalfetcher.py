@@ -5,6 +5,9 @@ import os, sys, json, asyncio, aiohttp, time
 from datetime import datetime, timedelta, timezone
 
 SEGMENTS_PER_DAY = 8
+# 同时查询的账户数量
+# 0 表示所有账户同时查询
+MAX_CONCURRENT_ACCOUNTS = 0
 
 ACCOUNTS_JSON = os.getenv("ACCOUNTS_JSON")
 if not ACCOUNTS_JSON:
@@ -82,7 +85,10 @@ def split_timeframes(date_str, segments=SEGMENTS_PER_DAY):
 
 def linear_delay(attempt: int):
     return min(0.5 * attempt, 10.0)
-
+    
+async def fetch_account_with_limit(semaphore, account_id, service_name, dates):
+    async with semaphore:
+        await fetch_account(account_id, service_name, dates)
 # ==========================================================
 # 单段抓取
 # ==========================================================
@@ -263,8 +269,23 @@ async def main_async():
     print(f"📅 查询日期: {dates}")
     print(f"👥 账户数: {len(accounts)}")
 
+    # 根据配置决定并发数
+    if MAX_CONCURRENT_ACCOUNTS and MAX_CONCURRENT_ACCOUNTS > 0:
+    semaphore = asyncio.Semaphore(MAX_CONCURRENT_ACCOUNTS)
+    else:
+    # 0 = 不限并发（账户数即并发数）
+    semaphore = asyncio.Semaphore(len(accounts))
+
+    tasks = []
     for acc_id, svc in accounts.items():
-        await fetch_account(acc_id, svc, dates)
+        tasks.append(
+            asyncio.create_task(
+                fetch_account_with_limit(semaphore, acc_id, svc, dates)
+        )
+    )
+
+    await asyncio.gather(*tasks)
+
 
 
 if __name__ == "__main__":
