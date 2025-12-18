@@ -19,7 +19,9 @@ jobs:
     steps:
       - uses: actions/checkout@v3
       - run: |
+          sudo mkdir /mnt/cf-logs
           sudo chmod 777 /mnt
+          sudo chmod 777 /mnt/cf-logs
 
 
       - name: Setup Python
