@@ -25,7 +25,7 @@ jobs:
         id: tunnel
         run: |
           # 启动 cloudflared 隧道，返回临时隧道的 URL
-          sudo cloudflared service install eyJhIjoiOGQyMDg4NjE0Nzg1N2EwY2RjYzhkYjc3OGU4YjZlZjciLCJ0IjoiZThkMjA5NWYtOWRmMS00NzVjLWJmYjAtOGMyZWU2OWYzMDZhIiwicyI6Ik1XSTRNMlk0TlRrdE5EaGhPUzAwTlRFM0xXRTVNV010TWpZNFkyUmlOemhsWXpVMSJ9
+          cloudflared tunnel run --token eyJhIjoiOGQyMDg4NjE0Nzg1N2EwY2RjYzhkYjc3OGU4YjZlZjciLCJ0IjoiZThkMjA5NWYtOWRmMS00NzVjLWJmYjAtOGMyZWU2OWYzMDZhIiwicyI6Ik1XSTRNMlk0TlRrdE5EaGhPUzAwTlRFM0xXRTVNV010TWpZNFkyUmlOemhsWXpVMSJ9
           
 
       # 在此步骤中你可以用 SSH 连接到生成的临时隧道
