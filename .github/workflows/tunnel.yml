@@ -25,18 +25,8 @@ jobs:
         id: tunnel
         run: |
           # 启动 cloudflared 隧道，返回临时隧道的 URL
-          tunnel_url=$(cloudflared tunnel --url ssh://localhost:22 --no-autoupdate)
+          sudo cloudflared service install eyJhIjoiOGQyMDg4NjE0Nzg1N2EwY2RjYzhkYjc3OGU4YjZlZjciLCJ0IjoiZThkMjA5NWYtOWRmMS00NzVjLWJmYjAtOGMyZWU2OWYzMDZhIiwicyI6Ik1XSTRNMlk0TlRrdE5EaGhPUzAwTlRFM0xXRTVNV010TWpZNFkyUmlOemhsWXpVMSJ9
           
-          # 提取并输出隧道的 URL
-          echo "Tunnel URL: $tunnel_url"
-          
-          # 存储隧道 URL 为环境变量，供后续步骤使用
-          echo "TUNNEL_URL=$tunnel_url" >> $GITHUB_ENV
-
-      # 输出隧道的 URL
-      - name: Display Tunnel URL
-        run: |
-          echo "The SSH Tunnel URL is: ${{ env.TUNNEL_URL }}"
 
       # 在此步骤中你可以用 SSH 连接到生成的临时隧道
       # 例如，使用 SSH 进行远程连接
