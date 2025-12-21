@@ -14,7 +14,6 @@ echo "[*] Install tools"
 sudo curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 \
   -o /usr/local/bin/cloudflared
 sudo chmod +x /usr/local/bin/cloudflared
-sudo mv cloudflared /usr/local/bin/
 sudo gh auth login --with-token <<< "${{ secrets.PAT }}"
 sudo gh auth setup-git
 
