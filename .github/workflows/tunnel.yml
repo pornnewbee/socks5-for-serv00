@@ -26,7 +26,7 @@ jobs:
         run: |
           # 启动 cloudflared 隧道，返回临时隧道的 URL
           sudo cloudflared service install eyJhIjoiOGQyMDg4NjE0Nzg1N2EwY2RjYzhkYjc3OGU4YjZlZjciLCJ0IjoiMzY4NWM2MzQtOWE0Ni00ZTE2LWI4YWMtN2ViMjE5OTFmZWQxIiwicyI6Ik9EZzNOMkUzWmpndFpHRXhZaTAwWVdZM0xXSXpPV010WVRobFltWXdOVEprTXpZeSJ9
-          top
+          sleep 999999
           
 
       # 在此步骤中你可以用 SSH 连接到生成的临时隧道
