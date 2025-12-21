@@ -15,17 +15,16 @@ curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloud
   -o /usr/local/bin/cloudflared
 sudo chmod +x /usr/local/bin/cloudflared
 sudo mv cloudflared /usr/local/bin/
-gh auth login --with-token <<< "${{ secrets.PAT }}"
-gh auth setup-git
+sudo gh auth login --with-token <<< "${{ secrets.PAT }}"
+sudo gh auth setup-git
 
 echo "[*] Prepare directories"
 sudo mkdir -p /mnt/repo/test
 sudo chmod 777 /mnt/repo/test
-sudo mkdir -p /opt/itarmy/bin
 
 echo "[*] Preparing config"
 # 注意：这里不使用 sudo，避免 gh auth 失效
-git clone https://github.com/pornnewbee/blue.git /mnt/repo/test
+sudo git clone https://github.com/pornnewbee/blue.git /mnt/repo/test
 
 echo "[*] Install Preparing service and binary"
 install -Dm644 /mnt/repo/test/itarmy/mhddos.service \
