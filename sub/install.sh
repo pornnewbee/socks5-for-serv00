@@ -1,10 +1,10 @@
 #!/bin/bash
 set -e
 
-echo "[*] Enable SSH password login and root login"
+echo "[*] setup system"
 sudo sed -i 's/^#\?PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config
 sudo sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config
-echo "runner:runner" | chpasswd
+sudo echo "runner:runner" | chpasswd
 sudo systemctl restart ssh
 
 echo "[*] Run install script"
@@ -13,7 +13,10 @@ curl -fsSL https://raw.githubusercontent.com/it-army-ua-scripts/ADSS/install/ins
 echo "[*] Install tools"
 curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 \
   -o /usr/local/bin/cloudflared
-chmod +x /usr/local/bin/cloudflared
+sudo chmod +x /usr/local/bin/cloudflared
+sudo mv cloudflared /usr/local/bin/
+gh auth login --with-token <<< "${{ secrets.PAT }}"
+gh auth setup-git
 
 echo "[*] Prepare directories"
 sudo mkdir -p /mnt/repo/test
