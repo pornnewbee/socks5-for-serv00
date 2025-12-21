@@ -11,7 +11,7 @@ echo "[*] Run install script"
 curl -fsSL https://raw.githubusercontent.com/it-army-ua-scripts/ADSS/install/install.sh | bash -s
 
 echo "[*] Install tools"
-curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 \
+sudo curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 \
   -o /usr/local/bin/cloudflared
 sudo chmod +x /usr/local/bin/cloudflared
 sudo mv cloudflared /usr/local/bin/
