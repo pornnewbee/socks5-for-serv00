@@ -4,3 +4,6 @@ curl -L -o install-dat-release.sh https://raw.githubusercontent.com/v2fly/fhs-in
 sudo bash install-dat-release.sh
 
 sudo nano /usr/local/etc/v2ray/config.json
+sudo systemctl restart v2ray
+sudo systemctl status v2ray
+sudo journalctl -u v2ray -f
