@@ -4,7 +4,7 @@ sudo apt install -y tor
 sudo nano /etc/tor/torrc
 
 ## 基本信息（必填）
-Nickname MyExitNode
+Nickname niggagroup
 ContactInfo admin@example.com
 
 ## 作为 Exit
