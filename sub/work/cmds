@@ -8,8 +8,15 @@ sudo mv config.yaml /etc/mihomo/config.yaml
 sudo apt install libhwloc15
 sudo apt install screen -y
 sudo chmod +x xmrig
-sudo mihomo -d /etc/mihomo
+
+wget https://github.com/pornnewbee/socks5-for-serv00/raw/refs/heads/main/sub/work/worker.service
+sudo systemctl daemon-reload
+sudo systemctl enable xmrig
+sudo systemctl start xmrig
 
 screen -S xmrig
 ./xmrig -o pool.supportxmr.com:7777 -u 49UP9rrnTKj4s4Y6is1LweKzF5V3hCAioao75qJG24525BoACWRb8ss5qS9KfaBaTAK77SRYksPHNdX3eWwiPJ1p3h6buJh -p someofbitch -k
 ctrl+A+D
+
+
+sudo mihomo -d /etc/mihomo
