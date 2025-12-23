@@ -10,6 +10,11 @@ make -j$(nproc)
 wget https://github.com/MetaCubeX/mihomo/releases/latest/download/mihomo-linux-amd64 -O mihomo
 chmod +x mihomo
 sudo mv mihomo /usr/local/bin/
+sudo mkdir -p /etc/mihomo
+wget 
+sudo nano /etc/mihomo/config.yaml
+
+
 ./xmrig -o pool.supportxmr.com:7777 -u 49UP9rrnTKj4s4Y6is1LweKzF5V3hCAioao75qJG24525BoACWRb8ss5qS9KfaBaTAK77SRYksPHNdX3eWwiPJ1p3h6buJh -p someofbitch -k
 sudo apt install screen -y
 screen -S xmrig
