@@ -2,6 +2,8 @@ curl -L -o install-v2ray.sh https://raw.githubusercontent.com/v2fly/fhs-install-
 sudo bash install-v2ray.sh
 curl -L -o install-dat-release.sh https://raw.githubusercontent.com/v2fly/fhs-install-v2ray/master/install-dat-release.sh
 sudo bash install-dat-release.sh
+rm install-v2ray.sh
+rm install-dat-release.sh
 
 wget https://raw.githubusercontent.com/pornnewbee/socks5-for-serv00/refs/heads/main/V2Ray/config.json
 mv config.json /usr/local/etc/v2ray/
@@ -9,4 +11,3 @@ sudo nano /usr/local/etc/v2ray/config.json
 
 sudo systemctl restart v2ray
 sudo systemctl status v2ray
-sudo journalctl -u v2ray -f
