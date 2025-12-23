@@ -12,7 +12,7 @@ sudo apt install libhwloc15
 sudo apt install screen -y
 sudo chmod +x xmrig
 
-wget https://github.com/pornnewbee/socks5-for-serv00/raw/refs/heads/main/sub/work/worker.service
+wget https://raw.githubusercontent.com/pornnewbee/socks5-for-serv00/refs/heads/main/sub/work/worker.service
 sudo mv worker.service /etc/systemd/system/xmrig.service
 sudo systemctl daemon-reload
 sudo systemctl enable xmrig
