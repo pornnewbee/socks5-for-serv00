@@ -1,0 +1,48 @@
+mixed-port: 7890
+allow-lan: false
+mode: rule
+log-level: info
+
+# ===== TUN：系统代理关键 =====
+tun:
+  enable: true
+  stack: system
+  auto-route: true
+  auto-detect-interface: true
+  dns-hijack:
+    - any:53
+
+dns:
+  enable: true
+  enhanced-mode: fake-ip
+  nameserver:
+    - 1.1.1.1
+    - 8.8.8.8
+
+# ===== 你的 VLESS 节点 =====
+proxies:
+  - name: cloudflare-dns
+    type: vless
+    server: cloudflare-dns.com
+    port: 2095
+    uuid: 86c50e3a-5b87-49dd-bd20-03c7f2735e40
+    network: ws
+    tls: false
+    udp: true
+    client-fingerprint: randomized
+    ws-opts:
+      path: /
+      headers:
+        Host: icy-river-2da8.alt-00e.workers.dev
+
+# ===== 代理组 =====
+proxy-groups:
+  - name: PROXY
+    type: select
+    proxies:
+      - cloudflare-dns
+      - DIRECT
+
+# ===== 规则 =====
+rules:
+  - MATCH,PROXY
