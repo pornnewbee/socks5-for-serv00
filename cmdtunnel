@@ -1,0 +1,1 @@
+cloudflared access ssh --hostname ssh.exa.com localhost:11441
