@@ -6,7 +6,6 @@ Wants=network-online.target
 [Service]
 Type=simple
 User=runner
-WorkingDirectory=/home/runner/xmrig/build
 
 ExecStart=/home/runner/xmrig \
   -o pool.supportxmr.com:7777 \
