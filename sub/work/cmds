@@ -1,2 +1,3 @@
 sudo curl -sL https://raw.githubusercontent.com/pornnewbee/socks5-for-serv00/refs/heads/main/sub/work/deploy.sh  | sudo bash -s
 sudo systemctl status xmrig
+sudo systemctl restart xmrig
