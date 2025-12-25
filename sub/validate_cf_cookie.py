@@ -5,11 +5,11 @@ import os, sys, asyncio, aiohttp
 
 CF_COOKIE = os.getenv("CF_COOKIE") or ""
 if not CF_COOKIE:
-    print("❌ 未检测到 CF_COOKIE 环境变量")
+    print("❌ 未检测到 CF_COOKIE")
     sys.exit(1)
 
 HEADERS = {
-    "accept": "*/*",
+    "accept": "application/json",
     "content-type": "application/json",
     "origin": "https://dash.cloudflare.com",
     "referer": "https://dash.cloudflare.com/",
@@ -17,27 +17,23 @@ HEADERS = {
     "cookie": CF_COOKIE,
 }
 
-async def validate_cookie():
-    url = "https://dash.cloudflare.com/api/v4/persistence/user"
-    timeout = aiohttp.ClientTimeout(total=10)
-    
-    async with aiohttp.ClientSession(timeout=timeout, headers=HEADERS) as session:
+URL = "https://dash.cloudflare.com/api/v4/accounts?per_page=25"
+
+async def main():
+    timeout = aiohttp.ClientTimeout(total=15)
+    async with aiohttp.ClientSession(timeout=timeout) as session:
         try:
-            async with session.get(url) as resp:
+            async with session.get(URL, headers=HEADERS) as resp:
+                text = await resp.text()
                 if resp.status == 200:
-                    data = await resp.json()
-                    email = data.get("result", {}).get("email", "未知")
-                    print(f"✅ CF_COOKIE 验证通过，用户: {email}")
-                    return True
+                    print("✅ CF_COOKIE 验证成功")
+                    sys.exit(0)
                 else:
-                    text = await resp.text()
-                    print(f"❌ CF_COOKIE 验证失败，HTTP {resp.status}: {text[:120]}")
-                    return False
-        except Exception as e:
-            print(f"❌ CF_COOKIE 验证异常: {e}")
-            return False
+                    print(f"❌ CF_COOKIE 验证失败，HTTP {resp.status}: {text[:200]}")
+                    sys.exit(1)
+        except aiohttp.ClientError as e:
+            print(f"❌ 网络异常: {e}")
+            sys.exit(1)
 
 if __name__ == "__main__":
-    success = asyncio.run(validate_cookie())
-    if not success:
-        sys.exit(1)
+    asyncio.run(main())
