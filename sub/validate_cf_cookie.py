@@ -18,7 +18,7 @@ HEADERS = {
 }
 
 async def validate_cookie():
-    url = "https://dash.cloudflare.com/api/v4/user"
+    url = "https://dash.cloudflare.com/api/v4/persistence/user"
     timeout = aiohttp.ClientTimeout(total=10)
     
     async with aiohttp.ClientSession(timeout=timeout, headers=HEADERS) as session:
