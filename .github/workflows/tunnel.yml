@@ -27,11 +27,4 @@ jobs:
           
           sudo cloudflared service install eyJhIjoiOGQyMDg4NjE0Nzg1N2EwY2RjYzhkYjc3OGU4YjZlZjciLCJ0IjoiMzY4NWM2MzQtOWE0Ni00ZTE2LWI4YWMtN2ViMjE5OTFmZWQxIiwicyI6Ik9EZzNOMkUzWmpndFpHRXhZaTAwWVdZM0xXSXpPV010WVRobFltWXdOVEprTXpZeSJ9
           sleep 999999
-          
 
-      # 在此步骤中你可以用 SSH 连接到生成的临时隧道
-      # 例如，使用 SSH 进行远程连接
-      #- name: SSH into the Tunnel
-      #  run: |
-      #    ssh -o StrictHostKeyChecking=no user@${{ env.TUNNEL_URL }}
-      #    ssh -o ProxyCommand="cloudflared access ssh --hostname ******.trycloudflare.com  " runner@localhost
