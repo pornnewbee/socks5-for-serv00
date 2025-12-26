@@ -11,7 +11,7 @@ SET_USER_PASSWORD="yes"        # yes / no
 USER_PASSWORD="runner"         # 仅当 SET_USER_PASSWORD=yes 生效
 
 INSTALL_CLOUDFLARED="yes"      # yes / no
-SILENT="no"                    # yes / no
+SILENT="yes"                    # yes / no
 # ==================
 
 # ===== 静默模式 =====
