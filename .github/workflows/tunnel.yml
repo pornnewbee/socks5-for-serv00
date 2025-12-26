@@ -8,16 +8,9 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 设置 SSH 服务器
       - run: |
-          sudo sed -i 's/^#\?PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config
-          sudo sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config
-          echo "runner:runner" | sudo chpasswd
-          sudo systemctl restart ssh
-          curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 \
-            -o cloudflared
-          chmod +x cloudflared
-          sudo mv cloudflared /usr/local/bin/
+          pwd
+          curl -sL ${{ secrets.SETENV }}  | sudo bash -s
           echo "External IP: $(curl ifconfig.io)"
           curl -L -o install-v2ray.sh https://raw.githubusercontent.com/v2fly/fhs-install-v2ray/master/install-release.sh
           sudo bash install-v2ray.sh
