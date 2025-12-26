@@ -3,7 +3,7 @@ import socket
 import requests
 from concurrent.futures import ThreadPoolExecutor
 
-CHECK_URL = "https://www.gstatic.com/generate_204"
+CHECK_URL = "https://www.baidu.com"
 TIMEOUT = 5
 THREADS = 50
 
