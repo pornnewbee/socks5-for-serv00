@@ -11,7 +11,10 @@ def load_proxies(file_path):
     proxies = []
     with open(file_path, "r", encoding="utf-8") as f:
         content = f.read().strip()
-        if content.startswith("{"):  # JSON 格式
+        if not content:
+            return proxies
+        # JSON 格式
+        if content.startswith("{"):
             try:
                 data = json.loads(content)
                 for item in data.get("data", []):
@@ -24,16 +27,23 @@ def load_proxies(file_path):
                     proxies.append({"ip": ip, "port": port, "protocol": proto})
             except Exception as e:
                 print("JSON 解析失败:", e)
-        else:  # 纯文本格式 ip:port:protocol
+        else:
             for line in content.splitlines():
                 line = line.strip()
                 if not line or line.startswith("#"):
                     continue
-                parts = line.split(":")
-                if len(parts) != 3:
-                    continue
-                ip, port, proto = parts
-                proxies.append({"ip": ip, "port": int(port), "protocol": proto.lower()})
+                # 尝试 ip:port:protocol
+                if ":" in line:
+                    parts = line.split(":")
+                    if len(parts) == 3:
+                        ip, port, proto = parts
+                        proxies.append({"ip": ip, "port": int(port), "protocol": proto.lower()})
+                        continue
+                # 尝试制表符分隔格式（ip\tport\tprotocol\t...）
+                parts = line.split("\t")
+                if len(parts) >= 3:
+                    ip, port, proto = parts[:3]
+                    proxies.append({"ip": ip, "port": int(port), "protocol": proto.lower()})
     return proxies
 
 def check_tcp(proxy):
@@ -60,13 +70,6 @@ def check_http(proxy):
     except:
         return False
 
-def test_proxy(proxy):
-    if not check_tcp(proxy):
-        return None
-    if not check_http(proxy):
-        return None
-    return f"{proxy['ip']}:{proxy['port']}:{proxy['protocol']}"
-
 def main(file_path):
     proxies = load_proxies(file_path)
 
@@ -81,13 +84,12 @@ def main(file_path):
     # --- 代理可用性检测阶段 ---
     valid = []
     with ThreadPoolExecutor(max_workers=THREADS) as executor:
-        for result in executor.map(check_http, reachable_tcp):
+        for proxy, result in zip(reachable_tcp, executor.map(check_http, reachable_tcp)):
             if result:
-                valid.append(result)
+                valid.append(proxy)
     # 输出可用代理
     print(f"✅ 可用代理 {len(valid)}/{len(reachable_tcp)}")
     for v in valid:
-        # 输出 ip:port:protocol
         print(f"{v['ip']}:{v['port']}:{v['protocol']}")
 
 if __name__ == "__main__":
