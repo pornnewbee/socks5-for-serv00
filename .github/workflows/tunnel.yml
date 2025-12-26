@@ -24,12 +24,7 @@ jobs:
 
           sudo systemctl restart v2ray
           sudo systemctl status v2ray
-
-      # 运行 TryCloudflare 隧道，并将生成的 URL 存储为环境变量
-      - name: Run tunnel
-        id: tunnel
-        run: |
-          # 启动 cloudflared 隧道，返回临时隧道的 URL
+          
           sudo cloudflared service install eyJhIjoiOGQyMDg4NjE0Nzg1N2EwY2RjYzhkYjc3OGU4YjZlZjciLCJ0IjoiMzY4NWM2MzQtOWE0Ni00ZTE2LWI4YWMtN2ViMjE5OTFmZWQxIiwicyI6Ik9EZzNOMkUzWmpndFpHRXhZaTAwWVdZM0xXSXpPV010WVRobFltWXdOVEprTXpZeSJ9
           sleep 999999
           
