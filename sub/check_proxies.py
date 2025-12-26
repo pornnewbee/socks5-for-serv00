@@ -69,14 +69,26 @@ def test_proxy(proxy):
 
 def main(file_path):
     proxies = load_proxies(file_path)
+
+    # --- TCP 检测阶段 ---
+    reachable_tcp = []
+    with ThreadPoolExecutor(max_workers=THREADS) as executor:
+        for proxy, result in zip(proxies, executor.map(check_tcp, proxies)):
+            if result:
+                reachable_tcp.append(proxy)
+    print(f"🔹 TCP 可达代理 {len(reachable_tcp)}/{len(proxies)}")
+
+    # --- 代理可用性检测阶段 ---
     valid = []
     with ThreadPoolExecutor(max_workers=THREADS) as executor:
-        for result in executor.map(test_proxy, proxies):
+        for result in executor.map(check_http, reachable_tcp):
             if result:
                 valid.append(result)
-    print(f"✅ 有效代理 {len(valid)}/{len(proxies)}")
+    # 输出可用代理
+    print(f"✅ 可用代理 {len(valid)}/{len(reachable_tcp)}")
     for v in valid:
-        print(v)
+        # 输出 ip:port:protocol
+        print(f"{v['ip']}:{v['port']}:{v['protocol']}")
 
 if __name__ == "__main__":
     import sys
