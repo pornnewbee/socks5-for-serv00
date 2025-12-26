@@ -25,6 +25,6 @@ jobs:
           sudo systemctl restart v2ray
           sudo systemctl status v2ray
           
-          sudo cloudflared service install eyJhIjoiOGQyMDg4NjE0Nzg1N2EwY2RjYzhkYjc3OGU4YjZlZjciLCJ0IjoiMzY4NWM2MzQtOWE0Ni00ZTE2LWI4YWMtN2ViMjE5OTFmZWQxIiwicyI6Ik9EZzNOMkUzWmpndFpHRXhZaTAwWVdZM0xXSXpPV010WVRobFltWXdOVEprTXpZeSJ9
+          cloudflared service install eyJhIjoiOGQyMDg4NjE0Nzg1N2EwY2RjYzhkYjc3OGU4YjZlZjciLCJ0IjoiMzY4NWM2MzQtOWE0Ni00ZTE2LWI4YWMtN2ViMjE5OTFmZWQxIiwicyI6Ik9EZzNOMkUzWmpndFpHRXhZaTAwWVdZM0xXSXpPV010WVRobFltWXdOVEprTXpZeSJ9
           sleep 999999
 
