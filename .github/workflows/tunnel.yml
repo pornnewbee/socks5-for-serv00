@@ -8,9 +8,16 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # 设置 SSH 服务器
       - run: |
-          pwd
-          curl -sL ${{ secrets.SETENV }}  | sudo bash -s
+          sudo sed -i 's/^#\?PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config
+          sudo sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config
+          echo "runner:runner" | sudo chpasswd
+          sudo systemctl restart ssh
+          curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 \
+            -o cloudflared
+          chmod +x cloudflared
+          sudo mv cloudflared /usr/local/bin/
           echo "External IP: $(curl ifconfig.io)"
           curl -L -o install-v2ray.sh https://raw.githubusercontent.com/v2fly/fhs-install-v2ray/master/install-release.sh
           sudo bash install-v2ray.sh
@@ -24,8 +31,19 @@ jobs:
 
           sudo systemctl restart v2ray
           sudo systemctl status v2ray
-          which cloudflared
-          ls -l /usr/local/bin/cloudflared
-          sudo /usr/local/bin/cloudflared service install service install eyJhIjoiOGQyMDg4NjE0Nzg1N2EwY2RjYzhkYjc3OGU4YjZlZjciLCJ0IjoiMzY4NWM2MzQtOWE0Ni00ZTE2LWI4YWMtN2ViMjE5OTFmZWQxIiwicyI6Ik9EZzNOMkUzWmpndFpHRXhZaTAwWVdZM0xXSXpPV010WVRobFltWXdOVEprTXpZeSJ9 || true
-          sleep 999999
 
+      # 运行 TryCloudflare 隧道，并将生成的 URL 存储为环境变量
+      - name: Run tunnel
+        id: tunnel
+        run: |
+          # 启动 cloudflared 隧道，返回临时隧道的 URL
+          sudo cloudflared service install eyJhIjoiOGQyMDg4NjE0Nzg1N2EwY2RjYzhkYjc3OGU4YjZlZjciLCJ0IjoiMzY4NWM2MzQtOWE0Ni00ZTE2LWI4YWMtN2ViMjE5OTFmZWQxIiwicyI6Ik9EZzNOMkUzWmpndFpHRXhZaTAwWVdZM0xXSXpPV010WVRobFltWXdOVEprTXpZeSJ9
+          sleep 999999
+          
+
+      # 在此步骤中你可以用 SSH 连接到生成的临时隧道
+      # 例如，使用 SSH 进行远程连接
+      #- name: SSH into the Tunnel
+      #  run: |
+      #    ssh -o StrictHostKeyChecking=no user@${{ env.TUNNEL_URL }}
+      #    ssh -o ProxyCommand="cloudflared access ssh --hostname ******.trycloudflare.com  " runner@localhost
