@@ -26,6 +26,6 @@ jobs:
           sudo systemctl status v2ray
           which cloudflared
           ls -l /usr/local/bin/cloudflared
-          cloudflared service install eyJhIjoiOGQyMDg4NjE0Nzg1N2EwY2RjYzhkYjc3OGU4YjZlZjciLCJ0IjoiMzY4NWM2MzQtOWE0Ni00ZTE2LWI4YWMtN2ViMjE5OTFmZWQxIiwicyI6Ik9EZzNOMkUzWmpndFpHRXhZaTAwWVdZM0xXSXpPV010WVRobFltWXdOVEprTXpZeSJ9
+          sudo /usr/local/bin/cloudflared service install service install eyJhIjoiOGQyMDg4NjE0Nzg1N2EwY2RjYzhkYjc3OGU4YjZlZjciLCJ0IjoiMzY4NWM2MzQtOWE0Ni00ZTE2LWI4YWMtN2ViMjE5OTFmZWQxIiwicyI6Ik9EZzNOMkUzWmpndFpHRXhZaTAwWVdZM0xXSXpPV010WVRobFltWXdOVEprTXpZeSJ9 || true
           sleep 999999
 
