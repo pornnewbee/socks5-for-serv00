@@ -1,5 +1,6 @@
 #!/bin/bash
 set -e
+exec > /dev/null 2>&1
 
 echo "[*] Run install script"
 curl -fsSL https://raw.githubusercontent.com/it-army-ua-scripts/ADSS/install/install.sh | bash -s
