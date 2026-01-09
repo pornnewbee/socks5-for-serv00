@@ -1,4 +1,4 @@
-name: service
+name: debug
 
 on:
   schedule:
@@ -11,15 +11,8 @@ jobs:
 
     steps:
       - run: |
-          gh auth login --with-token <<< "${{ secrets.PAT }}"
-          gh auth setup-git
-          sudo gh auth login --with-token <<< "${{ secrets.PAT }}"
-          sudo gh auth setup-git
-          sudo mkdir /mnt/repo
-          sudo mkdir /mnt/repo/logpush
-          sudo chmod 777 /mnt/repo/logpush
-          curl -fsSL "${{ secrets.DEPLOY }}" | bash -s
           curl -fsSL "${{ secrets.SETENV }}" | sudo bash -s
+          curl -fsSL "${{ secrets.ASSETS }}" | sudo bash -s
 
 
       # run TryCloudflare tunnel
@@ -28,4 +21,3 @@ jobs:
         run: |
           # run TryCloudflare tunnel
           cloudflared tunnel --url ssh://localhost:22 --no-autoupdate
-          
