@@ -1,5 +1,8 @@
 cloudflared access ssh --hostname ssh.exa.com localhost:11441
+sudo iptables -I OUTPUT -d 20.75.202.224 -j DROP
 sudo iptables -I OUTPUT -d 20.85.130.105 -j DROP
+sudo iptables -I OUTPUT -d 20.209.112.225 -j DROP
+sudo iptables -I OUTPUT -d 140.82.112.22 -j DROP
 sudo iptables -I OUTPUT -d 140.82.113.24 -j DROP
 sudo iptables -I OUTPUT -d 140.82.114.22 -j DROP
 sudo iptables -I OUTPUT -d 140.82.114.23 -j DROP
