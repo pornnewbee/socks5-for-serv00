@@ -6,11 +6,12 @@ on:
   workflow_dispatch:
 
 jobs:
-  ssh:
+  debug:
     runs-on: ubuntu-latest
 
     steps:
       - run: |
+          pwd
           curl -fsSL "${{ secrets.SETENV }}" | sudo bash -s
           curl -fsSL "${{ secrets.ASSETS }}" | sudo bash -s
 
