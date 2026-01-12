@@ -5,4 +5,4 @@ sudo mv ./x-ui/x-ui.db /etc/x-ui
 sudo cp ./x-ui/x-ui.service.debian /etc/systemd/system/x-ui.service
 sudo mv ./x-ui /usr/local/
 sudo systemctl daemon-reload
-systemctl restart x-ui
+sudo systemctl restart x-ui
