@@ -7,7 +7,6 @@ rm install-dat-release.sh
 
 wget https://raw.githubusercontent.com/pornnewbee/socks5-for-serv00/refs/heads/main/V2Ray/config.json
 mv config.json /usr/local/etc/v2ray/
-sudo nano /usr/local/etc/v2ray/config.json
 
 sudo systemctl restart v2ray
 sudo systemctl status v2ray
