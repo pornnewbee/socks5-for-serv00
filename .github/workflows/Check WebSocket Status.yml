@@ -3,27 +3,25 @@ name: Check WS (2095)
 on:
   workflow_dispatch:
     inputs:
-      url:
-        description: "WebSocket URL (e.g. http://xxx.workers.dev:2095/)"
+      host:
+        description: "Workers hostname (no http://, no port, no path)"
         required: true
-        default: "http://example.workers.dev:2095/"
+        default: "example.workers.dev"
 
 jobs:
   check-ws:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Test WS handshake
+      - name: Test WS handshake on port 2095
         run: |
           set -e
 
-          URL="${{ github.event.inputs.url }}"
+          HOST="${{ github.event.inputs.host }}"
+          URL="http://${HOST}:2095/"
 
-          # 从 URL 中提取 host（去掉协议、端口、路径）
-          HOST=$(echo "$URL" | sed -E 's#^https?://([^/:]+).*#\1#')
-
-          echo "Target URL: $URL"
-          echo "Host header: $HOST"
+          echo "Target host: $HOST"
+          echo "Testing URL: $URL"
 
           STATUS=$(curl --http1.1 \
             --max-time 5 \
@@ -32,4 +30,23 @@ jobs:
             -H "Host: $HOST" \
             -H "Connection: Upgrade" \
             -H "Upgrade: websocket" \
-            -H "Sec
+            -H "Sec-WebSocket-Version: 13" \
+            -H "Sec-WebSocket-Key: SGVsbG9Xb3JsZA==" \
+            "$URL" 2>/dev/null || true)
+
+          STATUS=${STATUS:-000}
+
+          echo "WS HTTP status: $STATUS"
+
+          if [ "$STATUS" = "101" ]; then
+            echo "✅ WS handshake OK (101)"
+            exit 0
+          fi
+
+          if [ "$STATUS" = "000" ]; then
+            echo "❌ Failed to get HTTP status"
+            exit 1
+          fi
+
+          echo "❌ WS handshake failed (status=$STATUS)"
+          exit 1
