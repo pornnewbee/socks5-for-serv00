@@ -12,7 +12,7 @@ jobs:
         run: |
           set -e
 
-          HOST="cnm.cnm-fangbinxing-nmsl-666.workers.dev"
+          HOST="jjj.cnmfangbinxingnmsl-915.workers.dev"
           URL="http://$HOST:2095/"
           
           STATUS=$(curl --http1.1 \
