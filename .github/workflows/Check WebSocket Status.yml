@@ -1,0 +1,36 @@
+name: Check WebSocket Status
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+jobs:
+  check-ws:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Test WebSocket handshake
+        run: |
+          set -e
+
+          URL="https://cnmfangbinxingnmsl.cnmfangbinxingnmsl.workers.dev"
+          HOST="cnmfangbinxingnmsl.cnmfangbinxingnmsl.workers.dev"
+
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            -H "Host: $HOST" \
+            -H "Connection: Upgrade" \
+            -H "Upgrade: websocket" \
+            -H "Sec-WebSocket-Version: 13" \
+            -H "Sec-WebSocket-Key: SGVsbG9Xb3JsZA==" \
+            "$URL")
+
+          echo "WebSocket HTTP status: $STATUS"
+
+          if [ "$STATUS" != "101" ]; then
+            echo "❌ WebSocket handshake failed"
+            exit 1
+          fi
+
+          echo "✅ WebSocket handshake OK (101)"
