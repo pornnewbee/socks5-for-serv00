@@ -24,22 +24,22 @@ jobs:
             -H "Upgrade: websocket" \
             -H "Sec-WebSocket-Version: 13" \
             -H "Sec-WebSocket-Key: SGVsbG9Xb3JsZA==" \
-            "$URL" 2>/dev/null || echo "000")
+            "$URL" 2>/dev/null || true)
+          
+          # 兜底：curl 在“完全没响应”时会返回空
+          STATUS=${STATUS:-000}
           
           echo "WS HTTP status: $STATUS"
           
-          # 只要明确拿到了状态码
           if [ "$STATUS" = "101" ]; then
             echo "✅ WS handshake OK (101)"
             exit 0
           fi
           
-          # 连状态码都没拿到
           if [ "$STATUS" = "000" ]; then
-            echo "❌ Failed to get HTTP status (connection error / timeout before response)"
+            echo "❌ Failed to get HTTP status"
             exit 1
           fi
           
-          # 其他状态码
           echo "❌ WS handshake failed (status=$STATUS)"
           exit 1
