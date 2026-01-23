@@ -1,22 +1,19 @@
-name: Check WebSocket Status
+name: Check WS (2095)
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - main
 
 jobs:
   check-ws:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Test WebSocket handshake
+      - name: Test WS handshake on port 2095
         run: |
           set -e
 
-          URL="https://icy-river-2da8.alt-00e.workers.dev"
-          HOST="icy-river-2da8.alt-00e.workers.dev"
+          HOST="cnm.cnmfangbinxingnmsl.workers.dev"
+          URL="http://$HOST:2095/"
 
           STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
             -H "Host: $HOST" \
@@ -26,11 +23,11 @@ jobs:
             -H "Sec-WebSocket-Key: SGVsbG9Xb3JsZA==" \
             "$URL")
 
-          echo "WebSocket HTTP status: $STATUS"
+          echo "WS HTTP status: $STATUS"
 
           if [ "$STATUS" != "101" ]; then
-            echo "❌ WebSocket handshake failed"
+            echo "❌ WS handshake failed"
             exit 1
           fi
 
-          echo "✅ WebSocket handshake OK (101)"
+          echo "✅ WS handshake OK (101)"
