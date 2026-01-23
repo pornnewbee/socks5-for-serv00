@@ -15,8 +15,8 @@ jobs:
         run: |
           set -e
 
-          URL="https://cnmfangbinxingnmsl.cnmfangbinxingnmsl.workers.dev"
-          HOST="cnmfangbinxingnmsl.cnmfangbinxingnmsl.workers.dev"
+          URL="https://cnm.cnmfangbinxingnmsl.workers.dev"
+          HOST="cnm.cnmfangbinxingnmsl.workers.dev"
 
           STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
             -H "Host: $HOST" \
