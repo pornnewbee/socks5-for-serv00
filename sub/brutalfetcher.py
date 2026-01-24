@@ -1,20 +1,8 @@
-
 #!/usr/bin/env python3
 # coding: utf-8
 
 import os, sys, json, asyncio, aiohttp, time, gzip, shutil
 from datetime import datetime, timedelta, timezone
-# 多账户并发数
-ACCOUNT_CONCURRENCY = int(os.getenv("ACCOUNT_CONCURRENCY", "17"))
-
-# 同一账户下，不同日期是否并行
-PARALLEL_DATES_PER_ACCOUNT = (
-    os.getenv("PARALLEL_DATES_PER_ACCOUNT", "0") == "1"
-)
-
-ACCOUNT_SEMAPHORE = asyncio.Semaphore(ACCOUNT_CONCURRENCY)
-
-# =================================================
 
 SEGMENTS_PER_DAY = 8
 OUTPUT_DIR = os.getenv("OUTPUT_DIR", "/mnt/cf-logs")
@@ -232,46 +220,39 @@ async def fetch_account(account_id, service_name, dates):
     )
 
     async with aiohttp.ClientSession(timeout=timeout) as session:
-
-        async def run_one_date(date_str):
+        for date_str in dates:
             print(f"\n===== {account_id}/{service_name} {date_str} =====")
-    
+
             ranges = split_timeframes(date_str)
             segments = [
                 {"seg_id": i + 1, "start_ms": s, "end_ms": e, "data": {}}
                 for i, (s, e) in enumerate(ranges)
             ]
-    
-            # ✅ 段并行（完全保留你的原逻辑）
+
             tasks = [
                 asyncio.create_task(
                     fetch_segment(session, account_id, service_name, seg)
                 )
                 for seg in segments
             ]
+
             await asyncio.gather(*tasks)
-    
+
             all_logs = {}
             for seg in segments:
                 all_logs.update(seg["data"])
-    
+
+            
             out = os.path.join(
                 OUTPUT_DIR,
                 f"{account_id}_invocations_{date_str}.json"
             )
             with open(out, "w", encoding="utf-8") as f:
                 json.dump({"invocations": all_logs}, f, ensure_ascii=False, indent=2)
-    
+                
             gz_out = compress_and_remove_json(out)
+            
             print(f"📦 {account_id} 保存 {len(all_logs)} 条日志 → {gz_out}（已压缩）")
-    
-        if PARALLEL_DATES_PER_ACCOUNT:
-            # 不同日期并行
-            await asyncio.gather(*(run_one_date(d) for d in dates))
-        else:
-            # 不同日期串行（原行为）
-            for d in dates:
-                await run_one_date(d)
 
 
 async def main_async():
@@ -298,18 +279,8 @@ async def main_async():
     print(f"📅 查询日期: {dates}")
     print(f"👥 账户数: {len(accounts)}")
 
-    async def fetch_account_with_limit(acc_id, svc, dates):
-        async with ACCOUNT_SEMAPHORE:
-            await fetch_account(acc_id, svc, dates)
-    
-    tasks = [
-        asyncio.create_task(
-            fetch_account_with_limit(acc_id, svc, dates)
-        )
-        for acc_id, svc in accounts.items()
-    ]
-    
-    await asyncio.gather(*tasks)
+    for acc_id, svc in accounts.items():
+        await fetch_account(acc_id, svc, dates)
 
 
 if __name__ == "__main__":
