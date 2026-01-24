@@ -1,7 +1,9 @@
+
 #!/usr/bin/env python3
 # coding: utf-8
-# ================= 并发配置 =================
 
+import os, sys, json, asyncio, aiohttp, time, gzip, shutil
+from datetime import datetime, timedelta, timezone
 # 多账户并发数
 ACCOUNT_CONCURRENCY = int(os.getenv("ACCOUNT_CONCURRENCY", "17"))
 
@@ -13,9 +15,6 @@ PARALLEL_DATES_PER_ACCOUNT = (
 ACCOUNT_SEMAPHORE = asyncio.Semaphore(ACCOUNT_CONCURRENCY)
 
 # =================================================
-
-import os, sys, json, asyncio, aiohttp, time, gzip, shutil
-from datetime import datetime, timedelta, timezone
 
 SEGMENTS_PER_DAY = 8
 OUTPUT_DIR = os.getenv("OUTPUT_DIR", "/mnt/cf-logs")
