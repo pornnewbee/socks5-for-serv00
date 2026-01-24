@@ -3,7 +3,7 @@
 # ================= 并发配置 =================
 
 # 多账户并发数
-ACCOUNT_CONCURRENCY = int(os.getenv("ACCOUNT_CONCURRENCY", "3"))
+ACCOUNT_CONCURRENCY = int(os.getenv("ACCOUNT_CONCURRENCY", "17"))
 
 # 同一账户下，不同日期是否并行
 PARALLEL_DATES_PER_ACCOUNT = (
