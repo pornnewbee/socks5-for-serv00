@@ -7,8 +7,8 @@ jobs:
   fetch_logs:
     runs-on: ubuntu-latest
     env:
-      ACCOUNTS_JSON: ${{ secrets.ACCOUNTS_JSON }}
-      CF_COOKIE: ${{ secrets.CF_COOKIE }}
+      ACCOUNTS_JSON: ${{ secrets.ACCOUNTS1_JSON }}
+      CF_COOKIE: ${{ secrets.CF1_COOKIE }}
     steps:
       - uses: actions/checkout@v3
       - run: |
