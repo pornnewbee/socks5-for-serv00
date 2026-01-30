@@ -45,14 +45,14 @@ jobs:
           OUTPUT_FILE = "worker_logs.json"
           LIMIT = 1000
           
-          # 时间范围过去 12 天
+          # 时间范围：过去 12 天
           now = datetime.datetime.utcnow()
-          since = now - datetime.timedelta(days=12)
-          until = now
+          since = int((now - datetime.timedelta(days=12)).timestamp())
+          until = int(now.timestamp())
           
           TIMEFRAME = {
-              "since": since.strftime("%Y-%m-%dT%H:%M:%SZ"),
-              "until": until.strftime("%Y-%m-%dT%H:%M:%SZ")
+              "from": since,
+              "to": until
           }
           
           API_URL = f"https://api.cloudflare.com/client/v4/accounts/{ACCOUNT_ID}/workers/observability/telemetry/query"
@@ -83,18 +83,20 @@ jobs:
                   raise Exception(f"API请求失败 {resp.status_code}: {resp.text}")
               return resp.json()
           
-          # 拉取所有日志
+          # 拉取全部日志
           all_logs = []
           cursor = None
           while True:
               data = query_logs(cursor)
               events = data.get("result", {}).get("events", [])
               all_logs.extend(events)
+          
               cursor = data.get("result", {}).get("next_cursor")
               if not cursor:
                   break
               sleep(0.5)
           
+          # 保存 JSON 文件
           with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
               json.dump(all_logs, f, ensure_ascii=False, indent=2)
           
