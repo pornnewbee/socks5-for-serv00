@@ -1,0 +1,24 @@
+name: trigge-self
+
+on:
+  workflow_dispatch:
+
+jobs:
+  trigger_other:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Show info-
+        run: |
+          echo "Workflow A started at $(date)"
+          echo "Runner IP:"
+          curl ifconfig.io || echo "curl failed"
+
+      - name: Trigger self
+        run: |
+          echo "Triggering self..."
+          curl -X POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: token ${{ secrets.GH_TOKEN }}" \
+            https://api.github.com/repos/ocjlet/codespace/actions/workflows/selftrigger.yml/dispatches \
+            -d '{"ref":"main"}'
