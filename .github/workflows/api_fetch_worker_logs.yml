@@ -1,21 +1,21 @@
-name: Fetch Sub Logs
+name: Fetch Sub Invocations
 
 on:
   # schedule:
-    # 每天凌晨 01:00 UTC 拉取过去12天日志
+    # 每天凌晨 01:00 UTC 拉取日志
     # - cron: '0 1 * * *'
-  workflow_dispatch: # 手动触发
+  workflow_dispatch: # 支持手动触发
 
 jobs:
-  fetch_logs:
+  fetch_invocations:
     runs-on: ubuntu-latest
 
     env:
       CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
       CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
       QUERY_ID: "gbax5izkb3b4b1y4ne9hgrja"
-      OUTPUT_FILE: "worker_logs.json"
-      LIMIT: 100
+      OUTPUT_FILE: "worker_invocations.json"
+      LIMIT: 2000  # 每次拉2000条
 
     steps:
       - name: Checkout repo
@@ -31,37 +31,68 @@ jobs:
           python -m pip install --upgrade pip
           pip install requests
 
-      - name: Fetch Worker logs
+      - name: Dry run to validate query
         run: |
           python3 <<'EOF'
           import os
           import requests
-          import datetime
           import json
+          import datetime
+
+          API_TOKEN = os.getenv("CF_API_TOKEN")
+          ACCOUNT_ID = os.getenv("CF_ACCOUNT_ID")
+          QUERY_ID = os.getenv("QUERY_ID")
+
+          now = int(datetime.datetime.utcnow().timestamp())
+          since = now - 3600  # 先 dry run 1 小时范围
+
+          API_URL = f"https://api.cloudflare.com/client/v4/accounts/{ACCOUNT_ID}/workers/observability/telemetry/query"
+
+          payload = {
+              "queryId": QUERY_ID,
+              "timeframe": {"from": since, "to": now},
+              "dry": True,
+              "view": "invocations"
+          }
+
+          headers = {
+              "Authorization": f"Bearer {API_TOKEN}",
+              "Content-Type": "application/json"
+          }
+
+          resp = requests.post(API_URL, headers=headers, json=payload)
+          if resp.status_code != 200:
+              raise Exception(f"Dry run failed: {resp.status_code} {resp.text}")
+          print("Dry run successful. Query is valid.")
+          EOF
+
+      - name: Fetch Worker invocations
+        run: |
+          python3 <<'EOF'
+          import os
+          import requests
+          import json
+          import datetime
           from time import sleep
 
           API_TOKEN = os.getenv("CF_API_TOKEN")
           ACCOUNT_ID = os.getenv("CF_ACCOUNT_ID")
           QUERY_ID = os.getenv("QUERY_ID")
           OUTPUT_FILE = os.getenv("OUTPUT_FILE")
-          LIMIT = int(os.getenv("LIMIT", 1000))
+          LIMIT = int(os.getenv("LIMIT", 2000))
 
           now = datetime.datetime.utcnow()
-          since = int((now - datetime.timedelta(days=7)).timestamp())  # 时间范围：过去12天
+          since = int((now - datetime.timedelta(days=12)).timestamp())
           until = int(now.timestamp())
-
-          TIMEFRAME = {
-              "from": since,
-              "to": until
-          }
 
           API_URL = f"https://api.cloudflare.com/client/v4/accounts/{ACCOUNT_ID}/workers/observability/telemetry/query"
 
           def query_logs(cursor=None):
               payload = {
                   "queryId": QUERY_ID,
-                  "timeframe": TIMEFRAME,
-                  "limit": LIMIT
+                  "timeframe": {"from": since, "to": until},
+                  "limit": LIMIT,
+                  "view": "invocations"
               }
               if cursor:
                   payload["cursor"] = cursor
@@ -73,15 +104,15 @@ jobs:
 
               resp = requests.post(API_URL, headers=headers, json=payload)
               if resp.status_code != 200:
-                  raise Exception(f"API请求失败 {resp.status_code}: {resp.text}")
+                  raise Exception(f"API request failed {resp.status_code}: {resp.text}")
               return resp.json()
 
-          # 拉取全部日志
           all_logs = []
           cursor = None
+
           while True:
               data = query_logs(cursor)
-              events = data.get("result", {}).get("events", [])
+              events = data.get("result", {}).get("invocations", [])
               all_logs.extend(events)
 
               cursor = data.get("result", {}).get("next_cursor")
@@ -89,16 +120,15 @@ jobs:
                   break
               sleep(0.5)
 
-          # 保存 JSON 文件
           with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
               json.dump(all_logs, f, ensure_ascii=False, indent=2)
 
-          print(f"共拉取日志条数: {len(all_logs)}")
-          print(f"已保存到 {OUTPUT_FILE}")
+          print(f"Total invocations fetched: {len(all_logs)}")
+          print(f"Saved to {OUTPUT_FILE}")
           EOF
 
-      - name: Upload logs as artifact
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: worker_logs
-          path: worker_logs.json
+          name: worker_invocations
+          path: worker_invocations.json
