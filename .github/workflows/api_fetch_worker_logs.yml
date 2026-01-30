@@ -46,9 +46,8 @@ jobs:
           OUTPUT_FILE = os.getenv("OUTPUT_FILE")
           LIMIT = int(os.getenv("LIMIT", 1000))
 
-          # 时间范围：过去12天
           now = datetime.datetime.utcnow()
-          since = int((now - datetime.timedelta(days=12)).timestamp())
+          since = int((now - datetime.timedelta(days=7)).timestamp())  # 时间范围：过去12天
           until = int(now.timestamp())
 
           TIMEFRAME = {
