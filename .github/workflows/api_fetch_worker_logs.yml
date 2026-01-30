@@ -2,9 +2,9 @@ name: Fetch sub Logs
 
 on:
   # schedule:
-    # 每天凌晨 01:00 UTC 运行一次，可根据需要修改
+    # 每天凌晨 01:00 UTC 拉取过去12天日志
     # - cron: '0 1 * * *'
-  workflow_dispatch: # 可以手动触发
+  workflow_dispatch: # 手动触发
 
 jobs:
   fetch_logs:
@@ -13,8 +13,10 @@ jobs:
     env:
       CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
       CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
-      WORKER_NAME: "sub"
-      OUTPUT_FILE: "sub_logs.json"
+      WORKER_NAME: "sub"                       # 要拉日志的 Worker 名称
+      QUERY_ID: "5m27a1bfeg86mqsotyww49jp"    # Dashboard 查询 ID
+      OUTPUT_FILE: "worker_logs.json"
+      LIMIT: 1000
 
     steps:
       - name: Checkout repo
@@ -38,28 +40,29 @@ jobs:
           import datetime
           import json
           from time import sleep
-          
+
           API_TOKEN = os.getenv("CF_API_TOKEN")
           ACCOUNT_ID = os.getenv("CF_ACCOUNT_ID")
-          WORKER_NAME = "sub"
-          OUTPUT_FILE = "worker_logs.json"
-          LIMIT = 1000
-          
-          # 时间范围：过去 12 天
+          WORKER_NAME = os.getenv("WORKER_NAME")
+          QUERY_ID = os.getenv("QUERY_ID")
+          OUTPUT_FILE = os.getenv("OUTPUT_FILE")
+          LIMIT = int(os.getenv("LIMIT", 1000))
+
+          # 时间范围：过去12天
           now = datetime.datetime.utcnow()
           since = int((now - datetime.timedelta(days=12)).timestamp())
           until = int(now.timestamp())
-          
+
           TIMEFRAME = {
               "from": since,
               "to": until
           }
-          
+
           API_URL = f"https://api.cloudflare.com/client/v4/accounts/{ACCOUNT_ID}/workers/observability/telemetry/query"
-          
+
           def query_logs(cursor=None):
               payload = {
-                  "queryId": "requests",
+                  "queryId": QUERY_ID,
                   "timeframe": TIMEFRAME,
                   "filters": [
                       {
@@ -72,34 +75,32 @@ jobs:
               }
               if cursor:
                   payload["cursor"] = cursor
-          
+
               headers = {
                   "Authorization": f"Bearer {API_TOKEN}",
                   "Content-Type": "application/json"
               }
-          
+
               resp = requests.post(API_URL, headers=headers, json=payload)
               if resp.status_code != 200:
                   raise Exception(f"API请求失败 {resp.status_code}: {resp.text}")
               return resp.json()
-          
-          # 拉取全部日志
+
           all_logs = []
           cursor = None
           while True:
               data = query_logs(cursor)
               events = data.get("result", {}).get("events", [])
               all_logs.extend(events)
-          
               cursor = data.get("result", {}).get("next_cursor")
               if not cursor:
                   break
               sleep(0.5)
-          
+
           # 保存 JSON 文件
           with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
               json.dump(all_logs, f, ensure_ascii=False, indent=2)
-          
+
           print(f"共拉取日志条数: {len(all_logs)}")
           print(f"已保存到 {OUTPUT_FILE}")
           EOF
