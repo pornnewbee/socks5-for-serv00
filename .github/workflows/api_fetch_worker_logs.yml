@@ -1,4 +1,4 @@
-name: Fetch sub Logs
+name: Fetch Sub Logs
 
 on:
   # schedule:
@@ -13,8 +13,7 @@ jobs:
     env:
       CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
       CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
-      WORKER_NAME: "sub"                       # 要拉日志的 Worker 名称
-      QUERY_ID: "5m27a1bfeg86mqsotyww49jp"    # Dashboard 查询 ID
+      QUERY_ID: "gbax5izkb3b4b1y4ne9hgrja"
       OUTPUT_FILE: "worker_logs.json"
       LIMIT: 1000
 
@@ -43,7 +42,6 @@ jobs:
 
           API_TOKEN = os.getenv("CF_API_TOKEN")
           ACCOUNT_ID = os.getenv("CF_ACCOUNT_ID")
-          WORKER_NAME = os.getenv("WORKER_NAME")
           QUERY_ID = os.getenv("QUERY_ID")
           OUTPUT_FILE = os.getenv("OUTPUT_FILE")
           LIMIT = int(os.getenv("LIMIT", 1000))
@@ -64,13 +62,6 @@ jobs:
               payload = {
                   "queryId": QUERY_ID,
                   "timeframe": TIMEFRAME,
-                  "filters": [
-                      {
-                          "field": "worker.name",
-                          "operator": "==",
-                          "value": WORKER_NAME
-                      }
-                  ],
                   "limit": LIMIT
               }
               if cursor:
@@ -86,12 +77,14 @@ jobs:
                   raise Exception(f"API请求失败 {resp.status_code}: {resp.text}")
               return resp.json()
 
+          # 拉取全部日志
           all_logs = []
           cursor = None
           while True:
               data = query_logs(cursor)
               events = data.get("result", {}).get("events", [])
               all_logs.extend(events)
+
               cursor = data.get("result", {}).get("next_cursor")
               if not cursor:
                   break
