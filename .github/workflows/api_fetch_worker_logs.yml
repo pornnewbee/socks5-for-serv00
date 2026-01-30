@@ -15,7 +15,7 @@ jobs:
       CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
       QUERY_ID: "gbax5izkb3b4b1y4ne9hgrja"
       OUTPUT_FILE: "worker_logs.json"
-      LIMIT: 1000
+      LIMIT: 100
 
     steps:
       - name: Checkout repo
