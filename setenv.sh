@@ -69,6 +69,7 @@ if [[ "$SET_USER_PASSWORD" == "yes" ]]; then
 fi
 
 systemctl restart ssh
+sudo apt install nload
 echo "[+] SSH service restarted"
 
 # ===== 安装 cloudflared（可选）=====
