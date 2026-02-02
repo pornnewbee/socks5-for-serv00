@@ -9,7 +9,7 @@ from tqdm import tqdm
 # 环境变量
 # ========================
 CF_API_TOKEN = os.environ["CF_API_TOKEN"]
-CF_ACCOUNT_ID = os.environ["CF_ACCOUNT_ID"]
+API_ACCOUNT_ID = os.environ["API_ACCOUNT_ID"]
 QUERY_ID = "gbax5izkb3b4b1y4ne9hgrja"
 
 API_URL = f"https://api.cloudflare.com/client/v4/accounts/{CF_ACCOUNT_ID}/workers/observability/telemetry/query"
