@@ -9,86 +9,126 @@ CF_ACCOUNT_ID = os.environ["API_ACCOUNT_ID"]
 
 QUERY_ID = "gbax5izkb3b4b1y4ne9hgrja"
 
-BASE_URL = f"https://api.cloudflare.com/client/v4/accounts/{CF_ACCOUNT_ID}/workers/observability/telemetry/query"
+API_URL = f"https://api.cloudflare.com/client/v4/accounts/{CF_ACCOUNT_ID}/workers/observability/telemetry/query"
 
 headers = {
     "Authorization": f"Bearer {CF_API_TOKEN}",
     "Content-Type": "application/json"
 }
 
+
+# ================================
+# UTC 时间范围（最近 N 天完整 UTC 天）
+# ================================
 def get_utc_timeframe(days=7):
     now = datetime.now(timezone.utc)
 
-    start = (now - timedelta(days=days-1)).replace(
+    start = (now - timedelta(days=days - 1)).replace(
         hour=0, minute=0, second=0, microsecond=0
     )
 
     end = now.replace(
-        hour=23, minute=59, second=59, microsecond=0
+        hour=23, minute=59, second=59, microsecond=999000
     )
 
-    return int(start.timestamp()*1000), int(end.timestamp()*1000)
+    return int(start.timestamp() * 1000), int(end.timestamp() * 1000)
 
-def dry_run(since, until):
+
+# ================================
+# Dry Run 校验
+# ================================
+def dry_run_check(since, until):
     payload = {
         "queryId": QUERY_ID,
         "dry": True,
-        "timeframe": {"from": since, "to": until}
+        "timeframe": {
+            "from": since,
+            "to": until
+        }
     }
 
-    r = requests.post(BASE_URL, headers=headers, json=payload)
-    print("Dry:", r.text)
+    r = requests.post(API_URL, headers=headers, json=payload)
+    print("Dry run result:", r.text)
 
-def start_query(since, until):
-    payload = {
-        "queryId": QUERY_ID,
-        "timeframe": {"from": since, "to": until}
-    }
 
-    r = requests.post(BASE_URL, headers=headers, json=payload)
-    data = r.json()
+# ================================
+# 主查询（自动分页）
+# ================================
+def fetch_all_logs(days=7, limit=2000, sleep_sec=0.2):
 
-    return data["result"]["run"]["id"]
+    since, until = get_utc_timeframe(days)
 
-def wait_run_complete(run_id):
-    url = f"{BASE_URL}/run/{run_id}"
+    print("========== Query Config ==========")
+    print("Query ID:", QUERY_ID)
+    print("Timeframe:", since, "→", until)
+    print("Limit per page:", limit)
+    print("==================================")
+
+    dry_run_check(since, until)
+
+    offset = 0
+    total_logs = []
+    page = 1
 
     while True:
-        r = requests.get(url, headers=headers)
+
+        payload = {
+            "queryId": QUERY_ID,
+            "timeframe": {
+                "from": since,
+                "to": until
+            },
+            "limit": limit,
+            "offset": offset
+        }
+
+        r = requests.post(API_URL, headers=headers, json=payload)
+
+        if r.status_code != 200:
+            print("HTTP ERROR:", r.status_code, r.text)
+            break
+
         data = r.json()
 
-        status = data["result"]["run"]["status"]
+        if not data.get("success"):
+            print("API ERROR:", data)
+            break
 
-        if status == "COMPLETED":
-            return
-        if status == "FAILED":
-            raise Exception("Query run failed")
+        rows = data.get("result", {}).get("data", [])
 
-        time.sleep(2)
+        count = len(rows)
 
-def fetch_run_data(run_id):
-    url = f"{BASE_URL}/run/{run_id}"
+        print(f"Page {page} | offset={offset} | got={count}")
 
-    r = requests.get(url, headers=headers)
-    data = r.json()
+        if count == 0:
+            break
 
-    return data["result"]["data"]
+        total_logs.extend(rows)
 
+        # 停止条件
+        if count < limit:
+            print("Reached last page.")
+            break
+
+        offset += limit
+        page += 1
+
+        time.sleep(sleep_sec)
+
+    return total_logs
+
+
+# ================================
+# MAIN
+# ================================
 if __name__ == "__main__":
 
-    since, until = get_utc_timeframe()
+    logs = fetch_all_logs(days=7, limit=2000)
 
-    dry_run(since, until)
+    print("==================================")
+    print("Total logs fetched:", len(logs))
 
-    run_id = start_query(since, until)
+    with open("worker_logs.json", "w", encoding="utf-8") as f:
+        json.dump(logs, f, ensure_ascii=False, indent=2)
 
-    print("Run ID:", run_id)
-
-    wait_run_complete(run_id)
-
-    logs = fetch_run_data(run_id)
-
-    print("Fetched:", len(logs))
-
-    with open("worker_logs.json", "w") as f:
-        json.dump(logs, f, indent=2)
+    print("Saved to worker_logs.json")
