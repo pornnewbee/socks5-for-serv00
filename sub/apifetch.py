@@ -68,7 +68,7 @@ def fetch_logs(days=7, limit=2000, sleep_sec=0.2):
             "queryId": QUERY_ID,
             "timeframe": {"from": since, "to": until},
             "limit": limit,
-            "offset": offset
+            "offset": str(offset)  # <-- 这里改成字符串
         }
 
         r = requests.post(API_URL, headers=HEADERS, json=payload)
