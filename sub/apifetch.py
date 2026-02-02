@@ -56,7 +56,7 @@ def fetch_logs():
                 "from": since,
                 "to": until
             },
-            "limit": 100
+            "limit": 2000
         }
 
         if cursor:
