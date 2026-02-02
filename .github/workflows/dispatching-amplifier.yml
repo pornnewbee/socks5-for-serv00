@@ -26,41 +26,62 @@ jobs:
           TOKEN="${{ secrets.PERSONAL_ACCESS_TOKEN }}"
           ITERATIONS=100
           max_backoff=5
-          backoff=1
-
+    
           echo "Job ${{ matrix.job_id }} starting $ITERATIONS triggers..."
-
+    
           pids=()
-
+    
+          success_file="success_${{ matrix.job_id }}.log"
+          fail_file="fail_${{ matrix.job_id }}.log"
+          > "$success_file"
+          > "$fail_file"
+    
           for i in $(seq 1 $ITERATIONS); do
           (
             backoff=1
             while true; do
-              RESPONSE=$(curl -s -X POST \
+    
+              HTTP_CODE=$(curl -s -o resp.txt -w "%{http_code}" -X POST \
                 -H "Accept: application/vnd.github+json" \
                 -H "Authorization: Bearer $TOKEN" \
                 https://api.github.com/repos/$REPO/actions/workflows/$WORKFLOW_FILE/dispatches \
                 -d "{\"ref\":\"$REF\"}")
-          
-              if echo "$RESPONSE" | grep -q "secondary rate limit"; then
-                echo "Job ${{ matrix.job_id }} iteration $i hit limit. Sleep ${backoff}s"
+    
+              if [ "$HTTP_CODE" = "204" ]; then
+                echo "SUCCESS job=${{ matrix.job_id }} iter=$i"
+                echo "$i" >> "$success_file"
+                break
+              fi
+    
+              if [ "$HTTP_CODE" = "403" ] || [ "$HTTP_CODE" = "429" ]; then
+                echo "RATE_LIMIT job=${{ matrix.job_id }} iter=$i sleep=${backoff}s"
                 sleep $backoff
                 backoff=$((backoff+1))
                 if [ $backoff -gt $max_backoff ]; then
                   backoff=$max_backoff
                 fi
-              else
-                break
+                continue
               fi
+    
+              echo "FAIL job=${{ matrix.job_id }} iter=$i http=$HTTP_CODE"
+              cat resp.txt
+              echo "$i http=$HTTP_CODE" >> "$fail_file"
+              break
+    
             done
           ) &
           
           pids+=($!)
           done
-          
+    
           # 等待全部完成
-          for pid in "${pids[@]}"; do
-            wait $pid
-          done
-
-          echo "Job ${{ matrix.job_id }} completed."
+          wait
+    
+          success_count=$(wc -l < "$success_file")
+          fail_count=$(wc -l < "$fail_file")
+    
+          echo "=========================="
+          echo "JOB ${{ matrix.job_id }} SUMMARY"
+          echo "SUCCESS: $success_count"
+          echo "FAIL:    $fail_count"
+          echo "=========================="
