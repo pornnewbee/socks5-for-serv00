@@ -37,11 +37,16 @@ def dry_run(since, until):
         "queryId": QUERY_ID,
         "dry": True,
         "timeframe": {"from": since, "to": until},
-        "view": "invocations"   # <-- 这里指定 Worker 调用日志
+        "view": "invocations"   # Worker 调用日志
     }
     r = requests.post(API_URL, headers=HEADERS, json=payload)
     r.raise_for_status()
     data = r.json()
+    
+    print("=== Dry Run Response ===")
+    print(json.dumps(data, indent=2, ensure_ascii=False))  # 打印整个 Dry Run 返回
+    print("========================")
+    
     if not data.get("success"):
         raise Exception(f"Dry run failed: {data}")
     print("Dry run successful ✅")
