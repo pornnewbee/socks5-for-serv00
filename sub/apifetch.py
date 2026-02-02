@@ -36,7 +36,8 @@ def dry_run(since, until):
     payload = {
         "queryId": QUERY_ID,
         "dry": True,
-        "timeframe": {"from": since, "to": until}
+        "timeframe": {"from": since, "to": until},
+        "view": "invocations"   # <-- 这里指定 Worker 调用日志
     }
     r = requests.post(API_URL, headers=HEADERS, json=payload)
     r.raise_for_status()
@@ -45,7 +46,6 @@ def dry_run(since, until):
         raise Exception(f"Dry run failed: {data}")
     print("Dry run successful ✅")
     return data
-
 
 # ========================
 # 拉取日志（offset + limit 分页）
@@ -68,7 +68,8 @@ def fetch_logs(days=7, limit=2000, sleep_sec=0.2):
             "queryId": QUERY_ID,
             "timeframe": {"from": since, "to": until},
             "limit": limit,
-            "offset": str(offset)  # <-- 这里改成字符串
+            "offset": str(offset),
+            "view": "invocations"   # <-- 这里也加上
         }
 
         r = requests.post(API_URL, headers=HEADERS, json=payload)
