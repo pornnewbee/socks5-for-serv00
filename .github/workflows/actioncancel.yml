@@ -18,7 +18,7 @@ jobs:
         run: |
           echo "Listing all running/pending workflow runs..."
           runs=$(curl -s -H "Authorization: token $PAT" \
-            "https://api.github.com/repos/$TARGET_OWNER/$TARGET_REPO/actions/runs?status=in_progress,pending&per_page=100" \
+            "https://api.github.com/repos/$TARGET_OWNER/$TARGET_REPO/actions/runs?status=in_progress,queued&per_page=100" \
             | jq -r '.workflow_runs[].id')
 
           for run_id in $runs; do
