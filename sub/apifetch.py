@@ -66,7 +66,7 @@ def fetch_logs(days=7, limit=2000, sleep_sec=0.2):
     # 1. Dry run 校验
     dry_run(since, until)
 
-    offset = 0
+    offset = None  # 第一次请求不用 offset
     all_logs = []
     page = 1
 
@@ -77,9 +77,10 @@ def fetch_logs(days=7, limit=2000, sleep_sec=0.2):
             "queryId": QUERY_ID,
             "timeframe": {"from": since, "to": until},
             "limit": limit,
-            "offset": str(offset),
-            "view": "invocations"  # ✅ 拉 Worker 调用日志
+            "view": "invocations"
         }
+        if offset:
+            payload["offset"] = offset  # 使用上一页最后一条日志 id 翻页
 
         r = requests.post(API_URL, headers=HEADERS, json=payload)
         if r.status_code != 200:
@@ -91,7 +92,7 @@ def fetch_logs(days=7, limit=2000, sleep_sec=0.2):
             print(f"API ERROR: {data}")
             break
 
-        # ✅ 从 result.invocations 获取日志
+        # 从 result.invocations 获取日志
         invocations = data.get("result", {}).get("invocations", {})
         rows = []
         for req_id, logs_list in invocations.items():
@@ -104,18 +105,21 @@ def fetch_logs(days=7, limit=2000, sleep_sec=0.2):
 
         all_logs.extend(rows)
         pbar.update(count)
-        print(f"Page {page} | offset={offset} | got={count}")
+        print(f"Page {page} | got {count} logs | total {len(all_logs)}")
 
-        if count < limit:
-            print("Reached last page.")
+        # 翻页用最后一条日志的 $metadata.id
+        last_log = rows[-1]
+        offset = last_log.get("$metadata", {}).get("id")
+        if not offset:
+            print("No offset for next page, reached last page.")
             break
 
-        offset += limit
         page += 1
         time.sleep(sleep_sec)
 
     pbar.close()
     return all_logs
+
 
 
 # ========================
