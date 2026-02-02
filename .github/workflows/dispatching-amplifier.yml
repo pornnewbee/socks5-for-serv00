@@ -1,0 +1,56 @@
+name: dispatch amplifier
+
+on:
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  trigger_loop:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Parallel trigger 1000 times with linear backoff
+        run: |
+          REPO="africadick/codespace"      # 目标仓库
+          WORKFLOW_FILE="IP.yml"           # 目标 workflow 文件
+          REF="main"                       # 分支
+          TOKEN="${{ secrets.PERSONAL_ACCESS_TOKEN }}"
+          JOBS=100                         # 并发 Job 数
+          ITERATIONS=10                     # 每个 Job 内触发次数
+          max_backoff=5                     # 最大退避时间
+
+          echo "Starting finite parallel trigger: $JOBS jobs × $ITERATIONS iterations each..."
+
+          backoff=1
+
+          for job_id in $(seq 1 $JOBS); do
+            (
+              for i in $(seq 1 $ITERATIONS); do
+                while true; do
+                  RESPONSE=$(curl -s -X POST \
+                    -H "Accept: application/vnd.github+json" \
+                    -H "Authorization: Bearer $TOKEN" \
+                    https://api.github.com/repos/$REPO/actions/workflows/$WORKFLOW_FILE/dispatches \
+                    -d "{\"ref\":\"$REF\"}")
+
+                  if echo "$RESPONSE" | grep -q "secondary rate limit"; then
+                    echo "Job $job_id iteration $i hit secondary rate limit. Backing off ${backoff}s..."
+                    sleep $backoff
+                    backoff=$((backoff + 1))
+                    if [ $backoff -gt $max_backoff ]; then
+                      backoff=$max_backoff
+                    fi
+                  else
+                    # 成功或其他错误都继续下一个触发
+                    backoff=1
+                    break
+                  fi
+                done
+              done
+            ) &
+          done
+
+          wait
+          echo "All triggers completed."
