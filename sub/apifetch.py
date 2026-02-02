@@ -3,7 +3,7 @@ import requests
 from tqdm import tqdm
 
 CF_API_TOKEN = os.environ["CF_API_TOKEN"]
-CF_ACCOUNT_ID = os.environ["CF_ACCOUNT_ID"]
+CF_ACCOUNT_ID = os.environ["API_ACCOUNT_ID"]
 WORKER_NAME = sub
 
 API_URL = f"https://api.cloudflare.com/client/v4/accounts/{CF_ACCOUNT_ID}/workers/observability/telemetry/query"
