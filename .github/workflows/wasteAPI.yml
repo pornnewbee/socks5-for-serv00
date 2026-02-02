@@ -1,10 +1,10 @@
-name: Infinite Cross-Repo Trigger
+name: Infinite Single-Workflow Trigger
 
 on:
-  workflow_dispatch: # 可以手动启动
+  workflow_dispatch:
 
 permissions:
-  actions: write  # 触发 workflow 需要写权限
+  actions: write
   contents: read
 
 jobs:
@@ -13,19 +13,18 @@ jobs:
     steps:
       - name: Infinite trigger loop
         run: |
-          # 定义目标仓库和 workflow 文件
-          REPOS=("username/repo1" "username/repo2")
-          WORKFLOW_FILE="target-workflow.yml"
-          REF="main"
+          REPO="africadick/codespace"          # 目标仓库
+          WORKFLOW_FILE="IP.yml"  # 目标 workflow 文件
+          REF="main"                     # 分支
+          TOKEN="${{ secrets.PERSONAL_ACCESS_TOKEN }}"
+
+          echo "Starting infinite trigger loop for $REPO/$WORKFLOW_FILE..."
 
           while true; do
-            for REPO in "${REPOS[@]}"; do
-              echo "Triggering $REPO..."
-              curl -s -X POST \
-                -H "Accept: application/vnd.github+json" \
-                -H "Authorization: Bearer ${{ secrets.PERSONAL_ACCESS_TOKEN }}" \
-                https://api.github.com/repos/africadick/codespace/actions/workflows/IP.yml/dispatches \
-                -d "{\"ref\":\"$REF\"}"
-              sleep 5  # 每次触发后等待 5 秒，避免过快
-            done
+            echo "Triggering $REPO/$WORKFLOW_FILE at $(date)..."
+            curl -s -X POST \
+              -H "Accept: application/vnd.github+json" \
+              -H "Authorization: Bearer $TOKEN" \
+              https://api.github.com/repos/$REPO/actions/workflows/$WORKFLOW_FILE/dispatches \
+              -d "{\"ref\":\"$REF\"}"
           done
