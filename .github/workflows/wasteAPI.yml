@@ -1,0 +1,31 @@
+name: Infinite Cross-Repo Trigger
+
+on:
+  workflow_dispatch: # 可以手动启动
+
+permissions:
+  actions: write  # 触发 workflow 需要写权限
+  contents: read
+
+jobs:
+  trigger_loop:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Infinite trigger loop
+        run: |
+          # 定义目标仓库和 workflow 文件
+          REPOS=("username/repo1" "username/repo2")
+          WORKFLOW_FILE="target-workflow.yml"
+          REF="main"
+
+          while true; do
+            for REPO in "${REPOS[@]}"; do
+              echo "Triggering $REPO..."
+              curl -s -X POST \
+                -H "Accept: application/vnd.github+json" \
+                -H "Authorization: Bearer ${{ secrets.PERSONAL_ACCESS_TOKEN }}" \
+                https://api.github.com/repos/africadick/codespace/actions/workflows/IP.yml/dispatches \
+                -d "{\"ref\":\"$REF\"}"
+              sleep 5  # 每次触发后等待 5 秒，避免过快
+            done
+          done
