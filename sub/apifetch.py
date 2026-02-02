@@ -16,17 +16,17 @@ headers = {
 }
 
 def get_utc_timeframe(days=7):
-    now_utc = datetime.now(timezone.utc)
+    now = datetime.now(timezone.utc)
 
-    start = (now_utc - timedelta(days=days-1)).replace(
+    start = (now - timedelta(days=days-1)).replace(
         hour=0, minute=0, second=0, microsecond=0
     )
 
-    end = now_utc.replace(
+    end = now.replace(
         hour=23, minute=59, second=59, microsecond=0
     )
 
-    return int(start.timestamp()), int(end.timestamp())
+    return int(start.timestamp()*1000), int(end.timestamp()*1000)
 
 def dry_run_check(since, until):
     payload = {
@@ -77,6 +77,29 @@ def fetch_logs():
             break
 
     return all_logs
+
+def start_query(since, until):
+    payload = {
+        "queryId": QUERY_ID,
+        "timeframe": {
+            "from": since,
+            "to": until
+        }
+    }
+
+    r = requests.post(API_URL, headers=headers, json=payload)
+    data = r.json()
+
+    return data["result"]["run"]["id"]
+
+def fetch_run(run_id):
+
+    url = f"{API_URL}/run/{run_id}"
+
+    r = requests.get(url, headers=headers)
+    data = r.json()
+
+    return data["result"]["data"]
 
 if __name__ == "__main__":
     logs = fetch_logs()
