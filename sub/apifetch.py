@@ -43,11 +43,15 @@ def dry_run(since, until):
     r.raise_for_status()
     data = r.json()
     
-    print("=== Dry Run Response Summary ===")
-    
+    # 1️⃣ 打印完整 Dry Run 返回
+    print("=== Dry Run Response ===")
+    print(json.dumps(data, indent=2, ensure_ascii=False))
+    print("========================")
+
     if not data.get("success"):
         raise Exception(f"Dry run failed: {data}")
 
+    # 2️⃣ 输出 summary
     invocations = data.get("result", {}).get("invocations", {})
     total_logs = 0
     min_ts, max_ts = None, None
@@ -65,15 +69,17 @@ def dry_run(since, until):
             if log.get("$workers", {}).get("truncated"):
                 truncated_count += 1
 
+    print("=== Dry Run Response Summary ===")
     print(f"Total invocations in dry run: {total_logs}")
     if min_ts and max_ts:
         print(f"Timestamp range: {min_ts} → {max_ts}")
     if truncated_count:
         print(f"Truncated logs count: {truncated_count}")
-
     print("===============================")
+    
     print("Dry run successful ✅")
     return data
+
 
 
 # ========================
