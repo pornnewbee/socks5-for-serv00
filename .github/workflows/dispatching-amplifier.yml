@@ -18,27 +18,32 @@ jobs:
                  61,62,63,64,65,66,67,68,69,70,71,72,73,74,75,76,77,78,79,80,
                  81,82,83,84,85,86,87,88,89,90,91,92,93,94,95,96,97,98,99,100]
     steps:
-      - name: Trigger IP.yml
+      - name: Trigger IP.yml (shared backoff per job)
         run: |
           REPO="africadick/codespace"
           WORKFLOW_FILE="IP.yml"
           REF="main"
           TOKEN="${{ secrets.PERSONAL_ACCESS_TOKEN }}"
           ITERATIONS=100
-          max_backoff=5
+    
+          MAX_BACKOFF=5
     
           echo "Job ${{ matrix.job_id }} starting $ITERATIONS triggers..."
     
-          pids=()
+          BACKOFF_FILE="backoff_${{ matrix.job_id }}.txt"
+          LOCK_FILE="backoff_${{ matrix.job_id }}.lock"
+    
+          echo 1 > "$BACKOFF_FILE"
     
           success_file="success_${{ matrix.job_id }}.log"
           fail_file="fail_${{ matrix.job_id }}.log"
           > "$success_file"
           > "$fail_file"
     
+          pids=()
+    
           for i in $(seq 1 $ITERATIONS); do
           (
-            backoff=1
             while true; do
     
               HTTP_CODE=$(curl -s -o resp.txt -w "%{http_code}" -X POST \
@@ -50,16 +55,32 @@ jobs:
               if [ "$HTTP_CODE" = "204" ]; then
                 echo "SUCCESS job=${{ matrix.job_id }} iter=$i"
                 echo "$i" >> "$success_file"
+    
+                # 成功后重置 backoff
+                (
+                  flock 200
+                  echo 1 > "$BACKOFF_FILE"
+                ) 200>"$LOCK_FILE"
+    
                 break
               fi
     
               if [ "$HTTP_CODE" = "403" ] || [ "$HTTP_CODE" = "429" ]; then
-                echo "RATE_LIMIT job=${{ matrix.job_id }} iter=$i sleep=${backoff}s"
-                sleep $backoff
-                backoff=$((backoff+1))
-                if [ $backoff -gt $max_backoff ]; then
-                  backoff=$max_backoff
-                fi
+    
+                (
+                  flock 200
+                  backoff=$(cat "$BACKOFF_FILE")
+                  echo "RATE_LIMIT job=${{ matrix.job_id }} iter=$i sleep=${backoff}s"
+    
+                  sleep "$backoff"
+    
+                  next=$((backoff+1))
+                  if [ $next -gt $MAX_BACKOFF ]; then
+                    next=$MAX_BACKOFF
+                  fi
+                  echo "$next" > "$BACKOFF_FILE"
+                ) 200>"$LOCK_FILE"
+    
                 continue
               fi
     
@@ -74,7 +95,6 @@ jobs:
           pids+=($!)
           done
     
-          # 等待全部完成
           wait
     
           success_count=$(wc -l < "$success_file")
