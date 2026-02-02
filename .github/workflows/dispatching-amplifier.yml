@@ -18,27 +18,29 @@ jobs:
                  61,62,63,64,65,66,67,68,69,70,71,72,73,74,75,76,77,78,79,80,
                  81,82,83,84,85,86,87,88,89,90,91,92,93,94,95,96,97,98,99,100]
     steps:
-      - name: Trigger IP.yml (shared backoff per job)
+      - name: Trigger IP.yml (shared backoff + limit detection)
         run: |
           REPO="africadick/codespace"
           WORKFLOW_FILE="IP.yml"
           REF="main"
           TOKEN="${{ secrets.PERSONAL_ACCESS_TOKEN }}"
           ITERATIONS=100
-    
           MAX_BACKOFF=5
     
           echo "Job ${{ matrix.job_id }} starting $ITERATIONS triggers..."
     
-          BACKOFF_FILE="backoff_${{ matrix.job_id }}.txt"
-          LOCK_FILE="backoff_${{ matrix.job_id }}.lock"
+          # ===== 每个 job 独立状态目录 =====
+          STATE_DIR="state_${{ matrix.job_id }}"
+          mkdir -p "$STATE_DIR"
     
+          BACKOFF_FILE="$STATE_DIR/backoff.txt"
+          LOCK_FILE="$STATE_DIR/backoff.lock"
           echo 1 > "$BACKOFF_FILE"
     
-          success_file="success_${{ matrix.job_id }}.log"
-          fail_file="fail_${{ matrix.job_id }}.log"
-          > "$success_file"
-          > "$fail_file"
+          SUCCESS_FILE="$STATE_DIR/success.log"
+          FAIL_FILE="$STATE_DIR/fail.log"
+          > "$SUCCESS_FILE"
+          > "$FAIL_FILE"
     
           pids=()
     
@@ -46,17 +48,24 @@ jobs:
           (
             while true; do
     
-              HTTP_CODE=$(curl -s -o resp.txt -w "%{http_code}" -X POST \
+              HTTP_CODE=$(curl -s \
+                -D "$STATE_DIR/headers_$i.txt" \
+                -o "$STATE_DIR/body_$i.txt" \
+                -w "%{http_code}" \
+                -X POST \
                 -H "Accept: application/vnd.github+json" \
                 -H "Authorization: Bearer $TOKEN" \
                 https://api.github.com/repos/$REPO/actions/workflows/$WORKFLOW_FILE/dispatches \
                 -d "{\"ref\":\"$REF\"}")
     
+              REMAINING=$(grep -i "^x-ratelimit-remaining:" "$STATE_DIR/headers_$i.txt" | awk '{print $2}' | tr -d '\r')
+              RESET=$(grep -i "^x-ratelimit-reset:" "$STATE_DIR/headers_$i.txt" | awk '{print $2}' | tr -d '\r')
+    
+              # ===== SUCCESS =====
               if [ "$HTTP_CODE" = "204" ]; then
                 echo "SUCCESS job=${{ matrix.job_id }} iter=$i"
-                echo "$i" >> "$success_file"
+                echo "$i" >> "$SUCCESS_FILE"
     
-                # 成功后重置 backoff
                 (
                   flock 200
                   echo 1 > "$BACKOFF_FILE"
@@ -65,12 +74,26 @@ jobs:
                 break
               fi
     
-              if [ "$HTTP_CODE" = "403" ] || [ "$HTTP_CODE" = "429" ]; then
+              # ===== PRIMARY LIMIT =====
+              if [ "$REMAINING" = "0" ]; then
+                now=$(date +%s)
+                wait_sec=$((RESET - now))
+                if [ $wait_sec -lt 1 ]; then
+                  wait_sec=5
+                fi
+    
+                echo "PRIMARY_LIMIT job=${{ matrix.job_id }} iter=$i wait=${wait_sec}s"
+                sleep $wait_sec
+                continue
+              fi
+    
+              # ===== SECONDARY LIMIT =====
+              if grep -qi "secondary rate limit" "$STATE_DIR/body_$i.txt" || [ "$HTTP_CODE" = "429" ]; then
     
                 (
                   flock 200
                   backoff=$(cat "$BACKOFF_FILE")
-                  echo "RATE_LIMIT job=${{ matrix.job_id }} iter=$i sleep=${backoff}s"
+                  echo "SECONDARY_LIMIT job=${{ matrix.job_id }} iter=$i sleep=${backoff}s"
     
                   sleep "$backoff"
     
@@ -84,21 +107,21 @@ jobs:
                 continue
               fi
     
+              # ===== 其它失败 =====
               echo "FAIL job=${{ matrix.job_id }} iter=$i http=$HTTP_CODE"
-              cat resp.txt
-              echo "$i http=$HTTP_CODE" >> "$fail_file"
+              cat "$STATE_DIR/body_$i.txt"
+              echo "$i http=$HTTP_CODE" >> "$FAIL_FILE"
               break
     
             done
           ) &
-          
           pids+=($!)
           done
     
           wait
     
-          success_count=$(wc -l < "$success_file")
-          fail_count=$(wc -l < "$fail_file")
+          success_count=$(wc -l < "$SUCCESS_FILE")
+          fail_count=$(wc -l < "$FAIL_FILE")
     
           echo "=========================="
           echo "JOB ${{ matrix.job_id }} SUMMARY"
