@@ -43,7 +43,9 @@ def dry_run(since, until):
     r.raise_for_status()
     data = r.json()
     
-    # 1️⃣ 打印完整 Dry Run 返回
+    # =======================
+    # 1️⃣ 输出完整 Dry Run 返回
+    # =======================
     print("=== Dry Run Response ===")
     print(json.dumps(data, indent=2, ensure_ascii=False))
     print("========================")
@@ -51,7 +53,9 @@ def dry_run(since, until):
     if not data.get("success"):
         raise Exception(f"Dry run failed: {data}")
 
-    # 2️⃣ 输出 summary
+    # =======================
+    # 2️⃣ 输出 Dry Run 总体情况
+    # =======================
     invocations = data.get("result", {}).get("invocations", {})
     total_logs = 0
     min_ts, max_ts = None, None
@@ -79,8 +83,6 @@ def dry_run(since, until):
     
     print("Dry run successful ✅")
     return data
-
-
 
 # ========================
 # 拉取日志（offset + limit 分页）
