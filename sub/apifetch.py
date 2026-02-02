@@ -15,12 +15,11 @@ headers = {
 }
 
 def get_utc_timeframe(days=7):
-    """返回最近 days 天的 UTC 时间段，包含今天完整一天"""
+    """返回最近 days 天的 UTC 时间段（秒级 UNIX 时间戳），包含今天完整一天"""
     now_utc = datetime.now(timezone.utc)
     start = (now_utc - timedelta(days=days-1)).replace(hour=0, minute=0, second=0, microsecond=0)
     end = now_utc.replace(hour=23, minute=59, second=59, microsecond=0)
-    # 转成 ISO 8601 格式字符串
-    return start.isoformat(), end.isoformat()
+    return int(start.timestamp()), int(end.timestamp())
 
 def fetch_logs():
     since, until = get_utc_timeframe(days=7)
@@ -31,13 +30,13 @@ def fetch_logs():
 
     while True:
         payload = {
-            "timeframe": {
-                "since": since,
-                "until": until
-            },
-            "filter": f'Worker == "{WORKER_NAME}"',
-            "limit": 100
-        }
+        "timeframe": {
+            "from": since,
+            "to": until
+        },
+        "filter": f'Worker == "{WORKER_NAME}"',
+        "limit": 100
+    }
 
         if cursor:
             payload["cursor"] = cursor
