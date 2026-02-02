@@ -1,4 +1,4 @@
-name: specify
+name: specifyworker
 
 on:
   workflow_dispatch:
