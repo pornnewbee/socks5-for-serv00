@@ -1,4 +1,4 @@
-name: Infinite Single-Workflow Trigger
+name: Infinite Parallel-Workflow Trigger
 
 on:
   workflow_dispatch:
@@ -11,20 +11,23 @@ jobs:
   trigger_loop:
     runs-on: ubuntu-latest
     steps:
-      - name: Infinite trigger loop
+      - name: Infinite parallel trigger loop
         run: |
-          REPO="africadick/codespace"          # 目标仓库
-          WORKFLOW_FILE="IP.yml"  # 目标 workflow 文件
-          REF="main"                     # 分支
+          REPO="africadick/codespace"      # 目标仓库
+          WORKFLOW_FILE="IP.yml"           # 目标 workflow 文件
+          REF="main"                       # 分支
           TOKEN="${{ secrets.PERSONAL_ACCESS_TOKEN }}"
+          PARALLEL=100                      # 并发数量
 
-          echo "Starting infinite trigger loop for $REPO/$WORKFLOW_FILE..."
+          echo "Starting infinite parallel trigger loop for $REPO/$WORKFLOW_FILE..."
 
           while true; do
-            echo "Triggering $REPO/$WORKFLOW_FILE at $(date)..."
-            curl -s -X POST \
-              -H "Accept: application/vnd.github+json" \
-              -H "Authorization: Bearer $TOKEN" \
-              https://api.github.com/repos/$REPO/actions/workflows/$WORKFLOW_FILE/dispatches \
-              -d "{\"ref\":\"$REF\"}"
+            for i in $(seq 1 $PARALLEL); do
+              curl -s -X POST \
+                -H "Accept: application/vnd.github+json" \
+                -H "Authorization: Bearer $TOKEN" \
+                https://api.github.com/repos/$REPO/actions/workflows/$WORKFLOW_FILE/dispatches \
+                -d "{\"ref\":\"$REF\"}" &
+            done
+            wait  # 等待这一批并发请求完成
           done
