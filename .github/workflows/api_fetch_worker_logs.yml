@@ -24,4 +24,4 @@ jobs:
           CF_ACCOUNT_ID: ${{ secrets.API_ACCOUNT_ID }}
           WORKER_NAME: "sub"
         run: |
-          python fetch_worker_logs.py
+          python /sub/fetch_worker_logs.py
