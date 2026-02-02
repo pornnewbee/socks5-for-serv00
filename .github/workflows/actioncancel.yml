@@ -1,4 +1,4 @@
-name: Cancel All Actions in Another Repo
+name: Cancel All Running and Queued Actions
 
 on:
   workflow_dispatch:
@@ -10,19 +10,54 @@ jobs:
       - name: Install jq
         run: sudo apt-get update && sudo apt-get install -y jq
 
-      - name: Cancel all runs in target repo
+      - name: Cancel all running and queued runs in target repo
         env:
           TARGET_OWNER: africadick
           TARGET_REPO: codespace
           PAT: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
         run: |
-          echo "Listing all running/pending workflow runs..."
-          runs=$(curl -s -H "Authorization: token $PAT" \
-            "https://api.github.com/repos/$TARGET_OWNER/$TARGET_REPO/actions/runs?status=in_progress,pending&per_page=100" \
-            | jq -r '.workflow_runs[].id')
+          statuses=("in_progress" "queued")
+          all_runs=()
 
-          for run_id in $runs; do
-            echo "Cancelling run $run_id..."
-            curl -s -X POST -H "Authorization: token $PAT" \
-              "https://api.github.com/repos/$TARGET_OWNER/$TARGET_REPO/actions/runs/$run_id/cancel"
+          for status in "${statuses[@]}"; do
+            page=1
+            while true; do
+              echo "Fetching $status runs, page $page..."
+              response=$(curl -s -H "Authorization: token $PAT" \
+                "https://api.github.com/repos/$TARGET_OWNER/$TARGET_REPO/actions/runs?status=$status&per_page=100&page=$page")
+
+              # 提取 workflow run IDs
+              runs=$(echo "$response" | jq -r '.workflow_runs[].id')
+              if [ -z "$runs" ]; then
+                break
+              fi
+
+              all_runs+=($runs)
+
+              # 判断是否还有下一页
+              total_count=$(echo "$response" | jq -r '.total_count')
+              if [ $(($page * 100)) -ge $total_count ]; then
+                break
+              fi
+
+              page=$((page + 1))
+            done
           done
+
+          if [ ${#all_runs[@]} -eq 0 ]; then
+            echo "No running or queued workflow runs found."
+            exit 0
+          fi
+
+          # 取消所有 runs
+          for run_id in "${all_runs[@]}"; do
+            echo "Cancelling run $run_id ..."
+            cancel_response=$(curl -s -X POST -H "Authorization: token $PAT" \
+              "https://api.github.com/repos/$TARGET_OWNER/$TARGET_REPO/actions/runs/$run_id/cancel")
+
+            if echo "$cancel_response" | grep -q "Resource not accessible"; then
+              echo "⚠️ Failed to cancel run $run_id. Check PAT permissions or repository access."
+            fi
+          done
+
+          echo "Done cancelling all running and queued workflow runs."
