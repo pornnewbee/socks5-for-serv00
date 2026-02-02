@@ -12,8 +12,8 @@ jobs:
 
       - name: Cancel all runs in target repo
         env:
-          TARGET_OWNER: your-target-org-or-user
-          TARGET_REPO: target-repo-name
+          TARGET_OWNER: africadick
+          TARGET_REPO: codespace
           PAT: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
         run: |
           echo "Listing all running/pending workflow runs..."
