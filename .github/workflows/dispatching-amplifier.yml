@@ -1,4 +1,4 @@
-name: dispatch amplifier
+name: Parallel Trigger with Matrix
 
 on:
   workflow_dispatch:
@@ -8,49 +8,48 @@ permissions:
   contents: read
 
 jobs:
-  trigger_loop:
+  trigger_matrix:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        job_id: [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,
+                 21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,
+                 41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,
+                 61,62,63,64,65,66,67,68,69,70,71,72,73,74,75,76,77,78,79,80,
+                 81,82,83,84,85,86,87,88,89,90,91,92,93,94,95,96,97,98,99,100]
     steps:
-      - name: Parallel trigger 1000 times with linear backoff
+      - name: Trigger IP.yml 10 times
         run: |
-          REPO="africadick/codespace"      # 目标仓库
-          WORKFLOW_FILE="IP.yml"           # 目标 workflow 文件
-          REF="main"                       # 分支
+          REPO="africadick/codespace"
+          WORKFLOW_FILE="IP.yml"
+          REF="main"
           TOKEN="${{ secrets.PERSONAL_ACCESS_TOKEN }}"
-          JOBS=100                         # 并发 Job 数
-          ITERATIONS=10                     # 每个 Job 内触发次数
-          max_backoff=5                     # 最大退避时间
-
-          echo "Starting finite parallel trigger: $JOBS jobs × $ITERATIONS iterations each..."
-
+          ITERATIONS=10
+          max_backoff=5
           backoff=1
 
-          for job_id in $(seq 1 $JOBS); do
-            (
-              for i in $(seq 1 $ITERATIONS); do
-                while true; do
-                  RESPONSE=$(curl -s -X POST \
-                    -H "Accept: application/vnd.github+json" \
-                    -H "Authorization: Bearer $TOKEN" \
-                    https://api.github.com/repos/$REPO/actions/workflows/$WORKFLOW_FILE/dispatches \
-                    -d "{\"ref\":\"$REF\"}")
+          echo "Job ${{ matrix.job_id }} starting $ITERATIONS triggers..."
 
-                  if echo "$RESPONSE" | grep -q "secondary rate limit"; then
-                    echo "Job $job_id iteration $i hit secondary rate limit. Backing off ${backoff}s..."
-                    sleep $backoff
-                    backoff=$((backoff + 1))
-                    if [ $backoff -gt $max_backoff ]; then
-                      backoff=$max_backoff
-                    fi
-                  else
-                    # 成功或其他错误都继续下一个触发
-                    backoff=1
-                    break
-                  fi
-                done
-              done
-            ) &
+          for i in $(seq 1 $ITERATIONS); do
+            while true; do
+              RESPONSE=$(curl -s -X POST \
+                -H "Accept: application/vnd.github+json" \
+                -H "Authorization: Bearer $TOKEN" \
+                https://api.github.com/repos/$REPO/actions/workflows/$WORKFLOW_FILE/dispatches \
+                -d "{\"ref\":\"$REF\"}")
+
+              if echo "$RESPONSE" | grep -q "secondary rate limit"; then
+                echo "Job ${{ matrix.job_id }} iteration $i hit secondary rate limit. Backing off ${backoff}s..."
+                sleep $backoff
+                backoff=$((backoff + 1))
+                if [ $backoff -gt $max_backoff ]; then
+                  backoff=$max_backoff
+                fi
+              else
+                backoff=1
+                break
+              fi
+            done
           done
 
-          wait
-          echo "All triggers completed."
+          echo "Job ${{ matrix.job_id }} completed."
