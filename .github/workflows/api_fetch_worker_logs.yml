@@ -21,7 +21,7 @@ jobs:
       - name: Fetch Worker Logs
         env:
           CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
-          CF_ACCOUNT_ID: ${{ secrets.API_ACCOUNT_ID }}
+          API_ACCOUNT_ID: ${{ secrets.API_ACCOUNT_ID }}
           WORKER_NAME: "sub"
         run: |
           python sub/apifetch.py
