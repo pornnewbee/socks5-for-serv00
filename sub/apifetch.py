@@ -10,7 +10,7 @@ from tqdm import tqdm
 # ========================
 CF_API_TOKEN = os.environ["CF_API_TOKEN"]
 CF_ACCOUNT_ID = os.environ["API_ACCOUNT_ID"]
-QUERY_ID = "gbax5izkb3b4b1y4ne9hgrja"
+QUERY_ID = "gbax5izkb3b4b1y4ne9hgrja"  # 你的 Saved Query ID
 
 API_URL = f"https://api.cloudflare.com/client/v4/accounts/{CF_ACCOUNT_ID}/workers/observability/telemetry/query"
 HEADERS = {
@@ -48,37 +48,30 @@ def dry_run(since, until):
 
 
 # ========================
-# 启动 run
+# 拉取日志（offset + limit 分页）
 # ========================
-def start_run(since, until):
-    payload = {
-        "queryId": QUERY_ID,
-        "timeframe": {"from": since, "to": until}
-    }
-    r = requests.post(API_URL, headers=HEADERS, json=payload)
-    r.raise_for_status()
-    data = r.json()
-    if not data.get("success"):
-        raise Exception(f"Start run failed: {data}")
-    run_id = data["result"]["run"]["id"]
-    print(f"Started run_id: {run_id}")
-    return run_id
+def fetch_logs(days=7, limit=2000, sleep_sec=0.2):
+    since, until = get_utc_timeframe(days)
+    print(f"Querying last {days} days: {since} → {until} UTC (ms)")
 
+    # 1. Dry run
+    dry_run(since, until)
 
-# ========================
-# 拉取 run 日志（分页）
-# ========================
-def fetch_run_logs(run_id, limit=2000, sleep_sec=0.2):
-    all_logs = []
     offset = 0
+    all_logs = []
     page = 1
 
-    # tqdm 进度条（注意：只是估算，真实总条数未知）
     pbar = tqdm(desc="Fetching logs", unit="logs")
 
     while True:
-        url = f"{API_URL}/run/{run_id}?limit={limit}&offset={offset}"
-        r = requests.get(url, headers=HEADERS)
+        payload = {
+            "queryId": QUERY_ID,
+            "timeframe": {"from": since, "to": until},
+            "limit": limit,
+            "offset": offset
+        }
+
+        r = requests.post(API_URL, headers=HEADERS, json=payload)
         if r.status_code != 200:
             print(f"HTTP ERROR {r.status_code}: {r.text}")
             break
@@ -113,25 +106,10 @@ def fetch_run_logs(run_id, limit=2000, sleep_sec=0.2):
 # MAIN
 # ========================
 if __name__ == "__main__":
-    DAYS = 7
-    LIMIT = 2000
-
-    since, until = get_utc_timeframe(days=DAYS)
-    print(f"Querying last {DAYS} days: {since} → {until} UTC (ms)")
-
-    # 1. Dry run 校验
-    dry_run(since, until)
-
-    # 2. 启动 run
-    run_id = start_run(since, until)
-
-    # 3. 拉取 run 日志
-    logs = fetch_run_logs(run_id, limit=LIMIT)
-
+    logs = fetch_logs(days=7, limit=2000)
     print(f"Total logs fetched: {len(logs)}")
 
-    # 4. 保存 JSON 文件
-    filename = f"worker_logs_run_{DAYS}d.json"
+    filename = "worker_logs_savedquery.json"
     with open(filename, "w", encoding="utf-8") as f:
         json.dump(logs, f, ensure_ascii=False, indent=2)
 
