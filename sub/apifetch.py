@@ -56,10 +56,14 @@ def dry_run(since, until):
 # 拉取日志（offset + limit 分页）
 # ========================
 def fetch_logs(days=7, limit=2000, sleep_sec=0.2):
+    """
+    拉取最近 N 天 Worker 调用日志（invocations view）
+    分页处理，返回完整日志列表
+    """
     since, until = get_utc_timeframe(days)
     print(f"Querying last {days} days: {since} → {until} UTC (ms)")
 
-    # 1. Dry run
+    # 1. Dry run 校验
     dry_run(since, until)
 
     offset = 0
@@ -74,7 +78,7 @@ def fetch_logs(days=7, limit=2000, sleep_sec=0.2):
             "timeframe": {"from": since, "to": until},
             "limit": limit,
             "offset": str(offset),
-            "view": "invocations"   # <-- 这里也加上
+            "view": "invocations"  # ✅ 拉 Worker 调用日志
         }
 
         r = requests.post(API_URL, headers=HEADERS, json=payload)
@@ -87,9 +91,15 @@ def fetch_logs(days=7, limit=2000, sleep_sec=0.2):
             print(f"API ERROR: {data}")
             break
 
-        rows = data.get("result", {}).get("data", [])
+        # ✅ 从 result.invocations 获取日志
+        invocations = data.get("result", {}).get("invocations", {})
+        rows = []
+        for req_id, logs_list in invocations.items():
+            rows.extend(logs_list)
+
         count = len(rows)
         if count == 0:
+            print("No more logs in this page.")
             break
 
         all_logs.extend(rows)
