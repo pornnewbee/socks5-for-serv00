@@ -10,7 +10,7 @@ jobs:
       - name: Install jq
         run: sudo apt-get update && sudo apt-get install -y jq
 
-      - name: Cancel all running and queued runs in target repo
+      - name: Cancel all running and queued workflow runs (concurrent)
         env:
           TARGET_OWNER: africadick
           TARGET_REPO: codespace
@@ -26,7 +26,6 @@ jobs:
               response=$(curl -s -H "Authorization: token $PAT" \
                 "https://api.github.com/repos/$TARGET_OWNER/$TARGET_REPO/actions/runs?status=$status&per_page=100&page=$page")
 
-              # 提取 workflow run IDs
               runs=$(echo "$response" | jq -r '.workflow_runs[].id')
               if [ -z "$runs" ]; then
                 break
@@ -34,7 +33,6 @@ jobs:
 
               all_runs+=($runs)
 
-              # 判断是否还有下一页
               total_count=$(echo "$response" | jq -r '.total_count')
               if [ $(($page * 100)) -ge $total_count ]; then
                 break
@@ -49,15 +47,13 @@ jobs:
             exit 0
           fi
 
-          # 取消所有 runs
+          echo "Cancelling all workflow runs concurrently..."
           for run_id in "${all_runs[@]}"; do
             echo "Cancelling run $run_id ..."
-            cancel_response=$(curl -s -X POST -H "Authorization: token $PAT" \
-              "https://api.github.com/repos/$TARGET_OWNER/$TARGET_REPO/actions/runs/$run_id/cancel")
-
-            if echo "$cancel_response" | grep -q "Resource not accessible"; then
-              echo "⚠️ Failed to cancel run $run_id. Check PAT permissions or repository access."
-            fi
+            curl -s -X POST -H "Authorization: token $PAT" \
+              "https://api.github.com/repos/$TARGET_OWNER/$TARGET_REPO/actions/runs/$run_id/cancel" &
           done
 
+          # 等待所有后台 cancel 请求完成
+          wait
           echo "Done cancelling all running and queued workflow runs."
