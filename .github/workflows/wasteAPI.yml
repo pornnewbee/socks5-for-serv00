@@ -11,7 +11,7 @@ jobs:
   trigger_loop:
     runs-on: ubuntu-latest
     steps:
-      - name: Infinite parallel trigger loop with linear backoff
+      - name: Infinite parallel trigger loop with global linear backoff
         run: |
           REPO="africadick/codespace"      # 目标仓库
           WORKFLOW_FILE="IP.yml"           # 目标 workflow 文件
@@ -21,34 +21,37 @@ jobs:
 
           echo "Starting infinite parallel trigger loop for $REPO/$WORKFLOW_FILE..."
 
-          backoff=1  # 初始退避秒数
+          backoff=1           # 初始退避秒数
           max_backoff=5
 
           while true; do
+            hit_limit=0  # 标记这一批是否遇到 secondary limit
+
             for i in $(seq 1 $PARALLEL); do
               (
-                RESPONSE=$(curl -s -w "%{http_code}" -X POST \
+                RESPONSE=$(curl -s -X POST \
                   -H "Accept: application/vnd.github+json" \
                   -H "Authorization: Bearer $TOKEN" \
                   https://api.github.com/repos/$REPO/actions/workflows/$WORKFLOW_FILE/dispatches \
                   -d "{\"ref\":\"$REF\"}")
-                
-                # 分离 http code 和 body
-                HTTP_CODE="${RESPONSE: -3}"
-                BODY="${RESPONSE:0:-3}"
 
-                if echo "$BODY" | grep -q "secondary rate limit"; then
-                  echo "Hit secondary rate limit, backing off ${backoff}s..."
-                  sleep $backoff
-                  backoff=$((backoff + 1))
-                  if [ $backoff -gt $max_backoff ]; then
-                    backoff=$max_backoff
-                  fi
-                else
-                  # 成功或其他错误都重置退避
-                  backoff=1
+                if echo "$RESPONSE" | grep -q "secondary rate limit"; then
+                  hit_limit=1
+                  echo "Hit secondary rate limit in this batch."
                 fi
               ) &
             done
+
             wait  # 等待这一批并发完成
+
+            if [ $hit_limit -eq 1 ]; then
+              echo "Backing off ${backoff}s due to secondary rate limit..."
+              sleep $backoff
+              backoff=$((backoff + 1))
+              if [ $backoff -gt $max_backoff ]; then
+                backoff=$max_backoff
+              fi
+            else
+              backoff=1  # 没遇到限制就重置退避
+            fi
           done
