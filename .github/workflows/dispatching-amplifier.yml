@@ -24,7 +24,7 @@ jobs:
           WORKFLOW_FILE="IP.yml"
           REF="main"
           TOKEN="${{ secrets.PERSONAL_ACCESS_TOKEN }}"
-          ITERATIONS=10
+          ITERATIONS=100
           max_backoff=5
           backoff=1
 
