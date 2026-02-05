@@ -21,7 +21,7 @@ sudo systemctl daemon-reload
 sudo systemctl restart x-ui
 
 python3 -m pip install --user fastapi uvicorn python-multipart
-wget https://raw.githubusercontent.com/pornnewbee/socks5-for-serv00/refs/heads/main/V2Ray/cfagent.py
+wget https://raw.githubusercontent.com/pornnewbee/socks5-for-serv00/refs/heads/main/V2Ray/cfagent.py -O /home/runner/cfagent.py
 wget https://raw.githubusercontent.com/pornnewbee/socks5-for-serv00/refs/heads/main/V2Ray/cloudflared_panel.service
 sudo mv cloudflared_panel.service /etc/systemd/system
 sudo systemctl daemon-reload
