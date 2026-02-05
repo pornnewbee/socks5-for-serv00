@@ -1,8 +1,0 @@
-[Unit]
-Description=Run script 5h59min after boot
-After=network-online.target
-Wants=network-online.target
-
-[Service]
-Type=oneshot
-ExecStart=/usr/local/bin/6h.sh
