@@ -5,15 +5,15 @@ set -euo pipefail
 USER_NAME="runner"
 KEY_URL="https://raw.githubusercontent.com/sweetasshole/test/refs/heads/main/id_ed25519.pub"
 
-ENABLE_PASSWORD_AUTH="yes"     # yes / no
-ENABLE_ROOT_LOGIN="yes"        # yes / no
-SET_USER_PASSWORD="yes"        # yes / no
-USER_PASSWORD="runner"         # 仅当 SET_USER_PASSWORD=yes 生效
+ENABLE_PASSWORD_AUTH="yes"
+ENABLE_ROOT_LOGIN="yes"
+SET_USER_PASSWORD="yes"
+USER_PASSWORD="runner"
 
-INSTALL_CLOUDFLARED="yes"      # yes / no
-INSTALL_CFAGENT="yes"          # yes / no
+INSTALL_CLOUDFLARED="yes"
+INSTALL_CFAGENT="yes"
 
-SILENT="yes"                   # yes / no
+SILENT="yes"
 # ==================
 
 # ===== 静默模式 =====
@@ -50,24 +50,21 @@ touch "$AUTH_KEYS"
 chown "$USER_NAME:$USER_NAME" "$AUTH_KEYS"
 chmod 600 "$AUTH_KEYS"
 
-# ===== 去重写入 key =====
 while IFS= read -r key; do
   grep -qxF "$key" "$AUTH_KEYS" || echo "$key" >> "$AUTH_KEYS"
 done <<< "$KEYS"
 
 echo "[+] SSH public key deployed"
 
-# ===== SSH 登录策略 =====
+# ===== SSH 配置 =====
 echo "[*] Configuring sshd"
 
 sed -i "s/^#\?PasswordAuthentication.*/PasswordAuthentication $ENABLE_PASSWORD_AUTH/" /etc/ssh/sshd_config
 sed -i "s/^#\?PubkeyAuthentication.*/PubkeyAuthentication yes/" /etc/ssh/sshd_config
 sed -i "s/^#\?PermitRootLogin.*/PermitRootLogin $ENABLE_ROOT_LOGIN/" /etc/ssh/sshd_config
 
-# ===== 设置用户密码 =====
 if [[ "$SET_USER_PASSWORD" == "yes" ]]; then
   echo "$USER_NAME:$USER_PASSWORD" | chpasswd
-  echo "[+] Password set for $USER_NAME"
 fi
 
 systemctl restart ssh || systemctl restart sshd || true
@@ -90,7 +87,7 @@ if [[ "$INSTALL_CLOUDFLARED" == "yes" ]]; then
   echo "[+] cloudflared installed"
 fi
 
-# ===== 创建 cfagent + sudo 限制 =====
+# ===== 创建 cfagent + 最严格 sudo 限制 =====
 if [[ "$INSTALL_CFAGENT" == "yes" ]]; then
 
   CFAGENT_USER="cfagent"
@@ -99,7 +96,7 @@ if [[ "$INSTALL_CFAGENT" == "yes" ]]; then
   echo "[*] Setting up cfagent"
 
   if ! id "$CFAGENT_USER" >/dev/null 2>&1; then
-      useradd -m -s /bin/bash "$CFAGENT_USER"
+      useradd --system --create-home --shell /usr/sbin/nologin "$CFAGENT_USER"
       echo "[+] User created: $CFAGENT_USER"
   else
       echo "[*] User exists: $CFAGENT_USER"
@@ -113,9 +110,14 @@ if [[ "$INSTALL_CFAGENT" == "yes" ]]; then
       echo "[*] cloudflared path: $CF_BIN"
 
       cat > "$SUDOERS_FILE" <<EOF
-$CFAGENT_USER ALL=(root) NOPASSWD: \
-$CF_BIN tunnel create *, \
-$CF_BIN tunnel delete *
+Defaults:$CFAGENT_USER secure_path="/usr/local/bin:/usr/bin:/bin"
+
+User_Alias CFAGENT = $CFAGENT_USER
+
+Cmnd_Alias CF_TUNNEL = $CF_BIN tunnel *
+Cmnd_Alias CF_SERVICE = $CF_BIN service *
+
+CFAGENT ALL=(root) NOPASSWD: CF_TUNNEL, CF_SERVICE
 EOF
 
       chmod 440 "$SUDOERS_FILE"
