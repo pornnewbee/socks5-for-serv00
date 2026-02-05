@@ -20,10 +20,10 @@ sudo mv ./x-ui /usr/local/
 sudo systemctl daemon-reload
 sudo systemctl restart x-ui
 
+python3 -m pip install fastapi uvicorn python-multipart
 wget https://raw.githubusercontent.com/pornnewbee/socks5-for-serv00/refs/heads/main/V2Ray/cfagent.py
 wget https://raw.githubusercontent.com/pornnewbee/socks5-for-serv00/refs/heads/main/V2Ray/cloudflared_panel.service
 sudo mv cloudflared_panel.service /etc/systemd/system
 sudo systemctl daemon-reload
 sudo systemctl enable cloudflared_panel
 sudo systemctl start cloudflared_panel
-pip install fastapi uvicorn python-multipart
