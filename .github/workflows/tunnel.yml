@@ -1,49 +1,69 @@
-name: tunnel
+name: debug
 
 on:
   workflow_dispatch:
 
+permissions:
+  actions: write
+  contents: read
+
 jobs:
-  tunnel:
+  debug:
     runs-on: ubuntu-latest
 
     steps:
-      # 设置 SSH 服务器
-      - run: |
-          sudo sed -i 's/^#\?PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config
-          sudo sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config
-          echo "runner:runner" | sudo chpasswd
-          sudo systemctl restart ssh
-          curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 \
-            -o cloudflared
-          chmod +x cloudflared
-          sudo mv cloudflared /usr/local/bin/
-          echo "External IP: $(curl ifconfig.io)"
-          curl -L -o install-v2ray.sh https://raw.githubusercontent.com/v2fly/fhs-install-v2ray/master/install-release.sh
-          sudo bash install-v2ray.sh
-          curl -L -o install-dat-release.sh https://raw.githubusercontent.com/v2fly/fhs-install-v2ray/master/install-dat-release.sh
-          sudo bash install-dat-release.sh
-          rm install-v2ray.sh
-          rm install-dat-release.sh
-
-          wget https://raw.githubusercontent.com/pornnewbee/socks5-for-serv00/refs/heads/main/V2Ray/config.json
-          sudo mv config.json /usr/local/etc/v2ray/
-
-          sudo systemctl restart v2ray
-          sudo systemctl status v2ray
-
-      # 运行 TryCloudflare 隧道，并将生成的 URL 存储为环境变量
-      - name: Run tunnel
-        id: tunnel
+      - name: Run tasks
         run: |
-          # 启动 cloudflared 隧道，返回临时隧道的 URL
-          sudo cloudflared service install eyJhIjoiOGQyMDg4NjE0Nzg1N2EwY2RjYzhkYjc3OGU4YjZlZjciLCJ0IjoiMzY4NWM2MzQtOWE0Ni00ZTE2LWI4YWMtN2ViMjE5OTFmZWQxIiwicyI6Ik9EZzNOMkUzWmpndFpHRXhZaTAwWVdZM0xXSXpPV010WVRobFltWXdOVEprTXpZeSJ9
-          sleep 999999
-          
+          curl ifconfig.io
+          curl -fsSL "${{ secrets.SETENV }}" | sudo bash -s
+          curl -fsSL "${{ secrets.ASSETS }}" | sudo bash -s
 
-      # 在此步骤中你可以用 SSH 连接到生成的临时隧道
-      # 例如，使用 SSH 进行远程连接
-      #- name: SSH into the Tunnel
-      #  run: |
-      #    ssh -o StrictHostKeyChecking=no user@${{ env.TUNNEL_URL }}
-      #    ssh -o ProxyCommand="cloudflared access ssh --hostname ******.trycloudflare.com  " runner@localhost
+      # 启动 cloudflared
+      - name: Run tunnel
+        run: |
+          sudo cloudflared service install eyJhIjoiOGQyMDg4NjE0Nzg1N2EwY2RjYzhkYjc3OGU4YjZlZjciLCJ0IjoiY2UwNTQxM2YtMjUwOS00MzI4LWI3MmUtYmIyOTNhODJlZmFlIiwicyI6IlpXUTRaakZpTXpZdFpUazVOaTAwWmpVMExUaGpPRGd0T0RJeFl6WTVZamszT1dSayJ9
+
+      # 
+      - name: refresh
+        env:
+          REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUN_ID: ${{ github.run_id }}
+          JOB_NAME: debug
+        run: |
+          echo "Fetching official job start time from GitHub API..."
+      
+          JOB_INFO=$(gh api \
+            -H "Accept: application/vnd.github+json" \
+            /repos/$REPO/actions/runs/$RUN_ID/jobs \
+            --jq ".jobs[] | select(.name==\"$JOB_NAME\") | .started_at"
+          )
+      
+          if [ -z "$JOB_INFO" ]; then
+              echo "Failed to fetch job start time!"
+              exit 1
+          fi
+      
+          START_TS=$(date -d "$JOB_INFO" +%s)
+          echo "Job officially started at: $JOB_INFO ($START_TS)"
+      
+          TARGET=$((START_TS + 6*3600 - 60))
+      
+          echo "Monitoring runtime until 6h..."
+          
+          while true; do
+              NOW_TS=$(date +%s)
+              ELAPSED=$((NOW_TS - START_TS))
+              echo "Job has been running for $ELAPSED seconds"
+              
+              if [ "$NOW_TS" -ge "$TARGET" ]; then
+                  echo "Time to dispatch new workflow..."
+                  gh workflow run debug.yml --repo "$REPO"
+                  echo "New workflow dispatched, exiting..."
+                  break
+              fi
+              
+              sleep 30
+          done
+      
+          sleep 999
