@@ -1,0 +1,20 @@
+name: showip
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  showip:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+
+    - name: Curl ifconfig.io
+      run: |
+        echo "Fetching external IP..."
+        curl ifconfig.io
