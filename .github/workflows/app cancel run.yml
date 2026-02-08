@@ -19,7 +19,7 @@ jobs:
           npm install @octokit/auth-app @octokit/rest
           jq '. + {"type":"module"}' package.json > package_tmp.json && mv package_tmp.json package.json
 
-            - name: Cancel workflow runs
+      - name: Cancel workflow runs
         env:
           APP_ID: "2823042"
           PRIVATE_KEY: ${{ secrets.APP_PRIVATE_KEY }}
