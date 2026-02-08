@@ -21,7 +21,7 @@ jobs:
 
       - name: Cancel runs via GitHub App
         env:
-          APP_ID: 2823042
+          APP_ID: "2823042"
           PRIVATE_KEY: ${{ secrets.APP_PRIVATE_KEY }}
           OWNER: "porndreamer"
           REPO: "codespace"
