@@ -1,0 +1,29 @@
+name: api waste
+
+on:
+  workflow_dispatch:  # 手动触发
+
+jobs:
+  api-dispatcher:
+    runs-on: ubuntu-latest
+    steps:
+      - name: api-dispatcher
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.PAT }}  # 这里使用你自己创建的PAT
+          script: |
+            const workflowFileName = 'showip.yml'; // 目标 workflow 文件名
+            const owner = porndreamer;
+            const repo = codespace;
+            const runs = 1000;
+
+            for (let i = 0; i < runs; i++) {
+              await github.rest.actions.createWorkflowDispatch({
+                owner,
+                repo,
+                workflow_id: workflowFileName,
+                ref: 'main', // 或你想触发的分支
+                inputs: {}   // 如果目标 workflow 有 inputs，可以在这里填
+              });
+              console.log(`Triggered ${i + 1}/${runs}`);
+            }
