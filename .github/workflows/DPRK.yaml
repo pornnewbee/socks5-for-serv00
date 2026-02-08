@@ -1,0 +1,37 @@
+name: Scan HTTP Status 175.45.176.0-179
+
+on:
+  workflow_dispatch:
+
+jobs:
+  scan-http:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+
+    steps:
+      - name: Install tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y curl parallel
+
+      - name: Scan network
+        run: |
+          OUTPUT="scan_results.csv"
+          echo "ip,status" > $OUTPUT
+
+          # 175.45.176.0/22 = 176~179
+          for third in 176 177 178 179; do
+            for last in $(seq 1 254); do
+              echo "175.45.$third.$last"
+            done
+          done | parallel -j40 '
+            IP={}
+            STATUS=$(curl -m 5 -s -o /dev/null -w "%{http_code}" http://$IP || echo FAIL)
+            echo "$IP,$STATUS" >> scan_results.csv
+          '
+
+      - name: Upload results
+        uses: actions/upload-artifact@v4
+        with:
+          name: http-scan-results
+          path: scan_results.csv
