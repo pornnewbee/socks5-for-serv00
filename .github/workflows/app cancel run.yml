@@ -13,10 +13,12 @@ jobs:
         with:
           node-version: 20
 
-      - name: Install dependencies
+      - name: Install dependencies and set ESM
         run: |
           npm init -y
-          npm install @octokit/app @octokit/rest
+          npm install @octokit/app@14 @octokit/rest@21
+          # 设置 package.json 为 ESM，防止 import 报错
+          jq '. + {"type":"module"}' package.json > package_tmp.json && mv package_tmp.json package.json
 
       - name: Cancel workflow runs
         env:
@@ -38,26 +40,27 @@ jobs:
 
           async function main() {
             try {
-              // 创建 App 对象
+              // 创建 GitHub App
               const app = new App({
                 appId: APP_ID,
                 privateKey: PRIVATE_KEY.replace(/\\n/g,"\n")
               });
 
-              // Octokit JWT 模式，先拿 App token
-              const appOctokit = await app.getOctokit();
+              // 用 JWT 创建 Octokit，访问 /app/installations
+              const jwt = app.getSignedJsonWebToken();
+              const appOctokit = new Octokit({ auth: jwt });
 
               console.log("Fetching installations...");
-              const installs = await appOctokit.request("GET /app/installations");
+              const installsRes = await appOctokit.request("GET /app/installations");
+              if (!installsRes.data.length) throw new Error("No installations found");
 
-              if (!installs.data.length) throw new Error("No installations found");
-
-              // 自动匹配当前仓库所属的安装
-              const installation = installs.data.find(i => i.account.login === OWNER);
+              // 匹配目标仓库所属安装
+              const installation = installsRes.data.find(i => i.account.login === OWNER);
               if (!installation) throw new Error("Installation not found for owner");
 
-              console.log("Using installation id:", installation.id);
+              console.log("Using installation ID:", installation.id);
 
+              // 用 installation token 创建 Octokit，操作仓库
               const installationOctokit = await app.getInstallationOctokit(installation.id);
 
               let totalCanceled = 0;
@@ -81,7 +84,6 @@ jobs:
 
                   if (!runs.length) break;
 
-                  // 顺序取消每个 run
                   for (const run of runs) {
                     try {
                       await installationOctokit.request(
