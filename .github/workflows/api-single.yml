@@ -1,0 +1,42 @@
+name: api single trigger
+
+on:
+  workflow_dispatch:
+
+jobs:
+  api-dispatcher:
+    runs-on: ubuntu-latest
+    steps:
+      - name: api-dispatcher
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.PAT }}
+          script: |
+            const workflowFileName = 'showip.yml'; // 目标 workflow 文件名
+            const owner = 'porndreamer';
+            const repo = 'codespace';
+
+            try {
+              const response = await github.rest.actions.createWorkflowDispatch({
+                owner,
+                repo,
+                workflow_id: workflowFileName,
+                ref: 'main',
+                inputs: {}
+              });
+
+              // 打印响应头
+              console.log('Response headers:', response.headers);
+
+              // 打印响应体
+              console.log('Response data:', response.data);
+
+              console.log('Workflow triggered successfully!');
+            } catch (err) {
+              console.error('Failed to trigger workflow:', err);
+
+              if (err.response) {
+                console.log('Error headers:', err.response.headers);
+                console.log('Error data:', err.response.data);
+              }
+            }
