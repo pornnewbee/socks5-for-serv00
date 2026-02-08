@@ -15,12 +15,14 @@ jobs:
             const workflowFileName = 'showip.yml'; // 目标 workflow 文件名
             const owner = 'porndreamer';
             const repo = 'codespace';
-            const runs = 1000;
+            const runs = 2000; // 总触发次数
+            const concurrency = 50; // 并发上限，防止一次性触发太多请求
 
             // 工具函数：等待指定秒数
             const sleep = (s) => new Promise(resolve => setTimeout(resolve, s * 1000));
 
-            for (let i = 0; i < runs; i++) {
+            // 单个 workflow 触发函数（带 secondary rate limit 自动退避）
+            const triggerWorkflow = async (index) => {
               let success = false;
               while (!success) {
                 try {
@@ -31,20 +33,36 @@ jobs:
                     ref: 'main',
                     inputs: {}
                   });
-                  console.log(`Triggered ${i + 1}/${runs}`);
+                  console.log(`Triggered workflow #${index + 1}`);
                   success = true;
                 } catch (err) {
-                  // 检查是否 secondary rate limit
                   const msg = err.message || '';
                   if (msg.includes('secondary rate limit')) {
-                    // 获取 retry-after，如果没有就默认 5 秒
+                    // 获取 retry-after，默认为 5 秒
                     const retryAfter = err.response?.headers?.['retry-after'] || 5;
-                    console.log(`Hit secondary rate limit. Retrying after ${retryAfter}s...`);
+                    console.log(`Workflow #${index + 1} hit secondary rate limit. Retrying after ${retryAfter}s...`);
                     await sleep(Number(retryAfter));
                   } else {
-                    console.error(`Failed to trigger workflow ${i + 1}:`, err);
-                    break; // 其他错误直接跳出循环
+                    console.error(`Workflow #${index + 1} failed:`, err);
+                    break;
                   }
                 }
               }
+            };
+
+            // 批量并发触发
+            const batches = [];
+            for (let i = 0; i < runs; i += concurrency) {
+              const batch = [];
+              for (let j = i; j < Math.min(i + concurrency, runs); j++) {
+                batch.push(triggerWorkflow(j));
+              }
+              batches.push(batch);
             }
+
+            // 顺序执行每个批次，但批次内真正并发
+            for (const batch of batches) {
+              await Promise.all(batch);
+            }
+
+            console.log('All workflows triggered.');
