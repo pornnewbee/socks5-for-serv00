@@ -21,7 +21,7 @@ jobs:
         run: |
           echo "Triggering 100 workflows concurrently..."
 
-          for i in $(seq 1 100); do
+          for i in $(seq 1 1000); do
             gh workflow run "$WORKFLOW" --repo "$REPO" --ref "$REF" &
           done
 
