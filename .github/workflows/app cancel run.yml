@@ -1,4 +1,4 @@
-name: Cancel Runs (App Auto Installation)
+name: APP Cancel All Workflow Runs
 
 on:
   workflow_dispatch:
@@ -8,24 +8,22 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
         with:
           node-version: 20
 
-      - name: Install deps
+      - name: Install dependencies
         run: |
           npm init -y
           npm install @octokit/app @octokit/rest
 
-      - name: Cancel runs via GitHub App
+      - name: Cancel workflow runs
         env:
           APP_ID: "2823042"
           PRIVATE_KEY: ${{ secrets.APP_PRIVATE_KEY }}
           OWNER: "porndreamer"
           REPO: "codespace"
-
         run: |
           cat << 'EOF' > cancel.js
           import { App } from "@octokit/app";
@@ -33,121 +31,83 @@ jobs:
 
           const APP_ID = process.env.APP_ID;
           const PRIVATE_KEY = process.env.PRIVATE_KEY;
-
           const OWNER = process.env.OWNER;
           const REPO = process.env.REPO;
 
-          const TARGET_STATUS = [
-            "in_progress",
-            "queued",
-            "waiting",
-            "pending",
-            "requested"
-          ];
+          const TARGET_STATUS = ["in_progress","queued","waiting","pending","requested"];
 
           async function main() {
+            try {
+              // 创建 App 对象
+              const app = new App({
+                appId: APP_ID,
+                privateKey: PRIVATE_KEY.replace(/\\n/g,"\n")
+              });
 
-            const app = new App({
-              appId: APP_ID,
-              privateKey: PRIVATE_KEY.replace(/\\n/g, "\n"),
-            });
+              // Octokit JWT 模式，先拿 App token
+              const appOctokit = await app.getOctokit();
 
-            console.log("Creating App Octokit (JWT auth)...");
+              console.log("Fetching installations...");
+              const installs = await appOctokit.request("GET /app/installations");
 
-            const appOctokit = await app.getOctokit();
+              if (!installs.data.length) throw new Error("No installations found");
 
-            console.log("Fetching installations...");
+              // 自动匹配当前仓库所属的安装
+              const installation = installs.data.find(i => i.account.login === OWNER);
+              if (!installation) throw new Error("Installation not found for owner");
 
-            const installs = await appOctokit.request(
-              "GET /app/installations"
-            );
+              console.log("Using installation id:", installation.id);
 
-            if (!installs.data.length) {
-              throw new Error("No installations found");
-            }
+              const installationOctokit = await app.getInstallationOctokit(installation.id);
 
-            // ⭐ 自动找匹配 repo 的 installation
-            let installationId = null;
+              let totalCanceled = 0;
 
-            for (const inst of installs.data) {
+              for (const status of TARGET_STATUS) {
+                let page = 1;
+                while (true) {
+                  const res = await installationOctokit.request(
+                    "GET /repos/{owner}/{repo}/actions/runs",
+                    {
+                      owner: OWNER,
+                      repo: REPO,
+                      status,
+                      per_page: 100,
+                      page
+                    }
+                  );
 
-              const repos = await appOctokit.request(
-                "GET /installation/repositories",
-                {
-                  headers: {
-                    authorization: `Bearer ${await app.getAppAuthentication().then(a => a.token)}`
+                  const runs = res.data.workflow_runs;
+                  console.log(`Status=${status} Page=${page} found ${runs.length} runs`);
+
+                  if (!runs.length) break;
+
+                  // 顺序取消每个 run
+                  for (const run of runs) {
+                    try {
+                      await installationOctokit.request(
+                        "POST /repos/{owner}/{repo}/actions/runs/{run_id}/cancel",
+                        { owner: OWNER, repo: REPO, run_id: run.id }
+                      );
+                      totalCanceled++;
+                      console.log("Canceled run:", run.id);
+                    } catch(e) {
+                      console.log("Failed to cancel run:", run.id, e.message);
+                    }
                   }
+
+                  if (runs.length < 100) break;
+                  page++;
                 }
-              );
-
-              if (repos.data.repositories.find(r => r.name === REPO)) {
-                installationId = inst.id;
-                break;
               }
+
+              console.log("Total runs canceled:", totalCanceled);
+
+            } catch (err) {
+              console.error("Error:", err);
             }
-
-            if (!installationId) {
-              console.log("Fallback: using first installation");
-              installationId = installs.data[0].id;
-            }
-
-            console.log("Using installation:", installationId);
-
-            const installationOctokit =
-              await app.getInstallationOctokit(installationId);
-
-            let totalCanceled = 0;
-
-            for (const status of TARGET_STATUS) {
-
-              let page = 1;
-
-              while (true) {
-
-                const res = await installationOctokit.request(
-                  "GET /repos/{owner}/{repo}/actions/runs",
-                  {
-                    owner: OWNER,
-                    repo: REPO,
-                    status,
-                    per_page: 100,
-                    page
-                  }
-                );
-
-                const runs = res.data.workflow_runs;
-
-                if (!runs.length) break;
-
-                for (const run of runs) {
-                  try {
-                    await installationOctokit.request(
-                      "POST /repos/{owner}/{repo}/actions/runs/{run_id}/cancel",
-                      {
-                        owner: OWNER,
-                        repo: REPO,
-                        run_id: run.id
-                      }
-                    );
-
-                    totalCanceled++;
-                    console.log("Canceled:", run.id);
-
-                  } catch (e) {
-                    console.log("Cancel fail:", run.id);
-                  }
-                }
-
-                if (runs.length < 100) break;
-
-                page++;
-              }
-            }
-
-            console.log("Total canceled:", totalCanceled);
           }
 
-          main().catch(console.error);
+          main();
           EOF
 
           node cancel.js
