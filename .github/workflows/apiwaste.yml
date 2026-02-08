@@ -18,7 +18,7 @@ jobs:
             const runs = 1000;
 
             for (let i = 0; i < runs; i++) {
-              await github.rest.actions.createWorkflowDispatch({
+              github.rest.actions.createWorkflowDispatch({
                 owner,
                 repo,
                 workflow_id: workflowFileName,
