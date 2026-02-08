@@ -1,0 +1,45 @@
+name: api rate limit check
+
+on:
+  workflow_dispatch:
+
+jobs:
+  api-rate-limit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check GitHub API Rate Limit
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.PAT }}
+          script: |
+            try {
+              // 调用 GET /rate_limit
+              const response = await github.request('GET /rate_limit');
+
+              const core = response.data.resources.core;
+
+              const limit = core.limit;
+              const remaining = core.remaining;
+              const used = core.used;
+              const reset = core.reset;
+
+              // 转换 reset 时间
+              const resetDate = new Date(reset * 1000).toISOString();
+
+              console.log("===== GitHub API Rate Limit =====");
+              console.log("Limit:", limit);
+              console.log("Remaining:", remaining);
+              console.log("Used:", used);
+              console.log("Reset (UTC):", resetDate);
+              console.log("Raw Reset Timestamp:", reset);
+
+              console.log("=================================");
+
+            } catch (err) {
+              console.error("Failed to get rate limit:", err);
+
+              if (err.response) {
+                console.log("Error headers:", err.response.headers);
+                console.log("Error data:", err.response.data);
+              }
+            }
