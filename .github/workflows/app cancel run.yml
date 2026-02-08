@@ -19,7 +19,7 @@ jobs:
           npm install @octokit/auth-app @octokit/rest
           jq '. + {"type":"module"}' package.json > package_tmp.json && mv package_tmp.json package.json
 
-      - name: Cancel workflow runs
+            - name: Cancel workflow runs
         env:
           APP_ID: "2823042"
           PRIVATE_KEY: ${{ secrets.APP_PRIVATE_KEY }}
@@ -31,31 +31,23 @@ jobs:
           import { Octokit } from '@octokit/rest';
 
           const APP_ID = process.env.APP_ID;
-          const PRIVATE_KEY = process.env.PRIVATE_KEY;
+          const PRIVATE_KEY = process.env.PRIVATE_KEY.replace(/\\n/g, "\n");
           const OWNER = process.env.OWNER;
           const REPO = process.env.REPO;
-
           const TARGET_STATUS = ["in_progress","queued","waiting","pending","requested"];
+          const CONCURRENCY = 70; // 并发数量，可调
 
           async function main() {
             try {
-              // ⭐ 先用 createAppAuth 拿 jwt client
-              const authApp = createAppAuth({
-                appId: APP_ID,
-                privateKey: PRIVATE_KEY.replace(/\\n/g, "\n"),
-              });
+              const authApp = createAppAuth({ appId: APP_ID, privateKey: PRIVATE_KEY });
 
-              // 拿安装列表
+              // 获取安装 token
               const appAuthentication = await authApp({ type: "app" });
               const appOctokit = new Octokit({ auth: appAuthentication.token });
-              console.log("Fetching installations...");
-
               const installsRes = await appOctokit.rest.apps.listInstallations();
-              const installations = installsRes.data;
 
-              // 匹配目标仓库所属的安装
               let installationId = null;
-              for (const inst of installations) {
+              for (const inst of installsRes.data) {
                 const repoInst = await appOctokit.rest.apps.getRepoInstallation({
                   owner: OWNER,
                   repo: REPO,
@@ -69,22 +61,19 @@ jobs:
 
               if (!installationId) throw new Error("Installation not found");
 
-              console.log("Using installation ID:", installationId);
-
-              // ⭐ 用安装身份拿 installation token
               const installationAuth = await authApp({
                 type: "installation",
                 installationId,
               });
+              const octokit = new Octokit({ auth: installationAuth.token });
 
-              const installationOctokit = new Octokit({ auth: installationAuth.token });
-
-              let totalCanceled = 0;
+              // 1️⃣ 先收集所有 run ID
+              const allRunIds = [];
 
               for (const status of TARGET_STATUS) {
                 let page = 1;
                 while (true) {
-                  const res = await installationOctokit.rest.actions.listWorkflowRunsForRepo({
+                  const res = await octokit.rest.actions.listWorkflowRunsForRepo({
                     owner: OWNER,
                     repo: REPO,
                     status,
@@ -95,32 +84,51 @@ jobs:
                   const runs = res.data.workflow_runs;
                   console.log(`Status=${status} Page=${page} found ${runs.length} runs`);
 
-                  if (!runs.length) break;
-
-                  for (const run of runs) {
-                    try {
-                      await installationOctokit.rest.actions.cancelWorkflowRun({
-                        owner: OWNER,
-                        repo: REPO,
-                        run_id: run.id,
-                      });
-                      totalCanceled++;
-                      console.log("Canceled run:", run.id);
-                    } catch (e) {
-                      console.log("Failed to cancel run:", run.id, e.message);
-                    }
-                  }
+                  allRunIds.push(...runs.map(run => run.id));
 
                   if (runs.length < 100) break;
                   page++;
                 }
               }
 
+              console.log(`Total runs to cancel: ${allRunIds.length}`);
+
+              // 2️⃣ 并发取消
+              let totalCanceled = 0;
+
+              async function cancelBatch(batch) {
+                await Promise.all(batch.map(async (runId) => {
+                  try {
+                    await octokit.rest.actions.cancelWorkflowRun({
+                      owner: OWNER,
+                      repo: REPO,
+                      run_id: runId,
+                    });
+                    totalCanceled++;
+                    console.log("Canceled run:", runId);
+                  } catch (e) {
+                    console.log("Failed to cancel run:", runId, e.message);
+                  }
+                }));
+              }
+
+              for (let i = 0; i < allRunIds.length; i += CONCURRENCY) {
+                const batch = allRunIds.slice(i, i + CONCURRENCY);
+                await cancelBatch(batch);
+              }
+
               console.log("Total runs canceled:", totalCanceled);
+
             } catch (err) {
               console.error("Error:", err);
             }
           }
+
+          main();
+          EOF
+
+          node cancel.js
+
 
           main();
           EOF
