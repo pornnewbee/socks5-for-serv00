@@ -16,8 +16,7 @@ jobs:
       - name: Install dependencies and set ESM
         run: |
           npm init -y
-          npm install @octokit/app@14 @octokit/rest@21
-          # 设置 package.json 为 ESM，防止 import 报错
+          npm install @octokit/auth-app @octokit/rest
           jq '. + {"type":"module"}' package.json > package_tmp.json && mv package_tmp.json package.json
 
       - name: Cancel workflow runs
@@ -28,8 +27,8 @@ jobs:
           REPO: "codespace"
         run: |
           cat << 'EOF' > cancel.js
-          import { App } from "@octokit/app";
-          import { Octokit } from "@octokit/rest";
+          import { createAppAuth } from '@octokit/auth-app';
+          import { Octokit } from '@octokit/rest';
 
           const APP_ID = process.env.APP_ID;
           const PRIVATE_KEY = process.env.PRIVATE_KEY;
@@ -40,44 +39,58 @@ jobs:
 
           async function main() {
             try {
-              // 创建 GitHub App
-              const app = new App({
+              // ⭐ 先用 createAppAuth 拿 jwt client
+              const authApp = createAppAuth({
                 appId: APP_ID,
-                privateKey: PRIVATE_KEY.replace(/\\n/g,"\n")
+                privateKey: PRIVATE_KEY.replace(/\\n/g, "\n"),
               });
 
-              // 用 JWT 创建 Octokit，访问 /app/installations
-              const jwt = app.getSignedJsonWebToken();
-              const appOctokit = new Octokit({ auth: jwt });
-
+              // 拿安装列表
+              const appAuthentication = await authApp({ type: "app" });
+              const appOctokit = new Octokit({ auth: appAuthentication.token });
               console.log("Fetching installations...");
-              const installsRes = await appOctokit.request("GET /app/installations");
-              if (!installsRes.data.length) throw new Error("No installations found");
 
-              // 匹配目标仓库所属安装
-              const installation = installsRes.data.find(i => i.account.login === OWNER);
-              if (!installation) throw new Error("Installation not found for owner");
+              const installsRes = await appOctokit.rest.apps.listInstallations();
+              const installations = installsRes.data;
 
-              console.log("Using installation ID:", installation.id);
+              // 匹配目标仓库所属的安装
+              let installationId = null;
+              for (const inst of installations) {
+                const repoInst = await appOctokit.rest.apps.getRepoInstallation({
+                  owner: OWNER,
+                  repo: REPO,
+                }).catch(() => null);
 
-              // 用 installation token 创建 Octokit，操作仓库
-              const installationOctokit = await app.getInstallationOctokit(installation.id);
+                if (repoInst && repoInst.data) {
+                  installationId = inst.id;
+                  break;
+                }
+              }
+
+              if (!installationId) throw new Error("Installation not found");
+
+              console.log("Using installation ID:", installationId);
+
+              // ⭐ 用安装身份拿 installation token
+              const installationAuth = await authApp({
+                type: "installation",
+                installationId,
+              });
+
+              const installationOctokit = new Octokit({ auth: installationAuth.token });
 
               let totalCanceled = 0;
 
               for (const status of TARGET_STATUS) {
                 let page = 1;
                 while (true) {
-                  const res = await installationOctokit.request(
-                    "GET /repos/{owner}/{repo}/actions/runs",
-                    {
-                      owner: OWNER,
-                      repo: REPO,
-                      status,
-                      per_page: 100,
-                      page
-                    }
-                  );
+                  const res = await installationOctokit.rest.actions.listWorkflowRunsForRepo({
+                    owner: OWNER,
+                    repo: REPO,
+                    status,
+                    per_page: 100,
+                    page,
+                  });
 
                   const runs = res.data.workflow_runs;
                   console.log(`Status=${status} Page=${page} found ${runs.length} runs`);
@@ -86,13 +99,14 @@ jobs:
 
                   for (const run of runs) {
                     try {
-                      await installationOctokit.request(
-                        "POST /repos/{owner}/{repo}/actions/runs/{run_id}/cancel",
-                        { owner: OWNER, repo: REPO, run_id: run.id }
-                      );
+                      await installationOctokit.rest.actions.cancelWorkflowRun({
+                        owner: OWNER,
+                        repo: REPO,
+                        run_id: run.id,
+                      });
                       totalCanceled++;
                       console.log("Canceled run:", run.id);
-                    } catch(e) {
+                    } catch (e) {
                       console.log("Failed to cancel run:", run.id, e.message);
                     }
                   }
@@ -103,7 +117,6 @@ jobs:
               }
 
               console.log("Total runs canceled:", totalCanceled);
-
             } catch (err) {
               console.error("Error:", err);
             }
