@@ -1,0 +1,29 @@
+name: 100 times
+
+on:
+  workflow_dispatch:  # 手动触发
+
+jobs:
+  trigger:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger 100 workflows concurrently
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          WORKFLOW: target-workflow.yml
+          REF: ${{ github.ref }}
+        run: |
+          echo "Triggering 100 workflows concurrently..."
+
+          for i in $(seq 1 100); do
+            curl -s -X POST \
+              -H "Accept: application/vnd.github+json" \
+              -H "Authorization: Bearer $GITHUB_TOKEN" \
+              https://api.github.com/repos/$REPO/actions/workflows/$WORKFLOW/dispatches \
+              -d "{\"ref\":\"$REF\"}" &
+          done
+
+          # 等待所有后台任务完成
+          wait
+          echo "All 100 workflows triggered."
