@@ -12,7 +12,7 @@ jobs:
         with:
           github-token: ${{ secrets.PAT }}
           script: |
-            const workflowFileName = 'showip.yml'; // 目标 workflow 文件名
+            const workflowFileName = 'sleep.yml'; // 目标 workflow 文件名
             const owner = 'wearingdurex';
             const repo = 'codespace';
             const runs = 2000; // 总触发次数
