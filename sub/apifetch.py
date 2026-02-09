@@ -109,7 +109,7 @@ def fetch_logs_grouped(days=7, limit=2000, sleep_sec=0.2):
             "queryId": QUERY_ID,
             "timeframe": {"from": since, "to": until},
             "limit": limit,
-            "view": "events"
+            "view": "invocations"
         }
         if offset:
             payload["offset"] = offset
