@@ -1,4 +1,4 @@
-name: Fetch Cloudflare Worker Logs via API
+name: Fetch Cloudflare Worker Logs via API D
 
 on:
   workflow_dispatch:
