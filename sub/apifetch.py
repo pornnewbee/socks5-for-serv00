@@ -87,7 +87,7 @@ def dry_run(since, until):
 # ========================
 # 拉取日志（offset + limit 分页）
 # ========================
-def fetch_logs_grouped(days=7, limit=100, sleep_sec=0.2):
+def fetch_logs_grouped(days=7, limit=2000, sleep_sec=0.2):
     """
     保留 requestId 分组的 invocations 日志
     """
