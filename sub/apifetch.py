@@ -153,7 +153,7 @@ def fetch_logs_grouped(days=7, limit=100, sleep_sec=0.2):
 # MAIN
 # ========================
 if __name__ == "__main__":
-    logs = fetch_logs_grouped(days=7, limit=100)
+    logs = fetch_logs_grouped(days=7, limit=2000)
     
     total_log_count = sum(len(v) for v in logs.values())
     print(f"Total request IDs fetched: {len(logs)}")
