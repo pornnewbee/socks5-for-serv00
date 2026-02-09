@@ -14,7 +14,7 @@ jobs:
         env:
           TARGET_OWNER: wearingdurex
           TARGET_REPO: codespace
-          PAT: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
+          PAT: ${{ secrets.PAT }}
         run: |
           statuses=("in_progress" "queued")
           all_runs=()
