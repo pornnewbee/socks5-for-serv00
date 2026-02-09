@@ -87,22 +87,21 @@ def dry_run(since, until):
 # ========================
 # 拉取日志（offset + limit 分页）
 # ========================
-def fetch_logs(days=7, limit=100, sleep_sec=0.2):
+def fetch_logs_grouped(days=7, limit=100, sleep_sec=0.2):
     """
-    拉取最近 N 天 Worker 调用日志（invocations view）
-    分页处理，返回完整日志列表
+    保留 requestId 分组的 invocations 日志
     """
     since, until = get_utc_timeframe(days)
     print(f"Querying last {days} days: {since} → {until} UTC (ms)")
 
-    # 1. Dry run 校验
+    # Dry run 校验
     dry_run(since, until)
 
-    offset = None  # 第一次请求不用 offset
-    all_logs = []
+    offset = None
+    all_invocations = {}
     page = 1
 
-    pbar = tqdm(desc="Fetching logs", unit="logs")
+    pbar = tqdm(desc="Fetching invocations", unit="invocations")
 
     while True:
         payload = {
@@ -112,7 +111,7 @@ def fetch_logs(days=7, limit=100, sleep_sec=0.2):
             "view": "invocations"
         }
         if offset:
-            payload["offset"] = offset  # 使用上一页最后一条日志 id 翻页
+            payload["offset"] = offset
 
         r = requests.post(API_URL, headers=HEADERS, json=payload)
         if r.status_code != 200:
@@ -124,33 +123,29 @@ def fetch_logs(days=7, limit=100, sleep_sec=0.2):
             print(f"API ERROR: {data}")
             break
 
-        # 从 result.invocations 获取日志
         invocations = data.get("result", {}).get("invocations", {})
-        rows = []
-        for req_id, logs_list in invocations.items():
-            rows.extend(logs_list)
-
-        count = len(rows)
-        if count == 0:
-            print("No more logs in this page.")
+        count_invocations = len(invocations)
+        if count_invocations == 0:
+            print("No more invocations in this page.")
             break
 
-        all_logs.extend(rows)
-        pbar.update(count)
-        print(f"Page {page} | got {count} logs | total {len(all_logs)}")
+        # 按 requestId 合并字典
+        all_invocations.update(invocations)
 
-        # 翻页用最后一条日志的 $metadata.id
-        last_log = rows[-1]
-        offset = last_log.get("$metadata", {}).get("id")
-        if not offset:
-            print("No offset for next page, reached last page.")
-            break
+        # 更新 offset 用最后一条日志的 $metadata.id
+        # 找最后一个 requestId 的最后一条日志
+        last_request_id = list(invocations.keys())[-1]
+        last_logs = invocations[last_request_id]
+        offset = last_logs[-1].get("$metadata", {}).get("id")
+
+        pbar.update(count_invocations)
+        print(f"Page {page} | got {count_invocations} invocations | total {len(all_invocations)} request IDs")
 
         page += 1
         time.sleep(sleep_sec)
 
     pbar.close()
-    return all_logs
+    return all_invocations
 
 
 
