@@ -24,7 +24,7 @@ jobs:
           CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
           API_ACCOUNT_ID: ${{ secrets.API_ACCOUNT_ID }}
         run: |
-          python sub/api dry fetcher.py
+          python sub/api%20dry%20fetcher.py
 
       # ⭐ 关键：上传日志文件
       - name: Upload logs artifact
