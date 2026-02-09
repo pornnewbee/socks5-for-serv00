@@ -36,6 +36,7 @@ def dry_run(since, until):
     payload = {
         "queryId": QUERY_ID,
         "dry": True,
+        "limit": 2000,
         "timeframe": {"from": since, "to": until},
         "view": "invocations"   # Worker 调用日志
     }
