@@ -19,11 +19,20 @@ HEADERS = {
 # ========================
 # 时间窗口
 # ========================
-def get_utc_timeframe(days=1):
+def get_utc_timeframe(days=7):
     now = datetime.now(timezone.utc)
-    start = (now - timedelta(days=days)).replace(hour=0, minute=0, second=0, microsecond=0)
-    end = now
-    return int(start.timestamp() * 1000), int(end.timestamp() * 1000)
+
+    # N天前 00:00:00.000
+    start_day = (now - timedelta(days=days - 1)).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
+
+    # 今天 23:59:59.999
+    end_day = now.replace(
+        hour=23, minute=59, second=59, microsecond=999000
+    )
+
+    return int(start_day.timestamp() * 1000), int(end_day.timestamp() * 1000)
 
 
 # ========================
