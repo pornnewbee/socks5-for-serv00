@@ -29,17 +29,16 @@ def get_utc_timeframe(days=1):
 # ========================
 # API 查询函数（dry 或真实）
 # ========================
-def query_logs(since, until, offset=None, limit=2000, dry=True):
+def query_logs(since, until, offset=None, limit=2000):
     payload = {
         "queryId": QUERY_ID,
         "limit": limit,
+        "dry": True,
         "view": "invocations",
         "timeframe": {"from": since, "to": until}
     }
     if offset:
         payload["offset"] = offset
-    if dry:
-        payload["dry"] = True
 
     r = requests.post(API_URL, headers=HEADERS, json=payload)
     r.raise_for_status()
