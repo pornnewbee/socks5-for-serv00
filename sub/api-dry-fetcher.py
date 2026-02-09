@@ -18,7 +18,7 @@ HEADERS = {
 # ========================
 # 时间窗口函数
 # ========================
-def get_utc_timeframe(days=7):
+def get_utc_timeframe(days=1):
     now = datetime.now(timezone.utc)
     start_day = (now - timedelta(days=days - 1)).replace(hour=0, minute=0, second=0, microsecond=0)
     end_day = now.replace(hour=23, minute=59, second=59, microsecond=999000)
