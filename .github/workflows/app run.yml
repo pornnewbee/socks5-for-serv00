@@ -13,53 +13,56 @@ jobs:
         with:
           node-version: 20
 
-      - name: Install dependencies and set ESM
-        run: |
-          npm init -y
-          npm install @octokit/auth-app @octokit/rest
-          jq '. + {"type":"module"}' package.json > package_tmp.json && mv package_tmp.json package.json
-
       - name: Trigger target workflow
         env:
           APP_ID: "2823042"
           PRIVATE_KEY: ${{ secrets.APP_PRIVATE_KEY }}
           OWNER: "wearingdurex"
           REPO: "codespace"
-
+      
           # ⭐ 要触发的 workflow 文件名
           WORKFLOW_FILE: "showip.yml"
-
+      
           # ⭐ 触发分支
           REF: "main"
-
+      
+          # ⭐ 总触发次数
+          TRIGGER_COUNT: "1000"
+      
+          # ⭐ 并发数量
+          CONCURRENCY: "100"
+      
         run: |
           cat << 'EOF' > trigger.js
           import { createAppAuth } from '@octokit/auth-app';
           import { Octokit } from '@octokit/rest';
-
+      
           const APP_ID = process.env.APP_ID;
           const PRIVATE_KEY = process.env.PRIVATE_KEY.replace(/\\n/g, "\n");
           const OWNER = process.env.OWNER;
           const REPO = process.env.REPO;
           const WORKFLOW_FILE = process.env.WORKFLOW_FILE;
           const REF = process.env.REF;
-
+      
+          const TRIGGER_COUNT = Number(process.env.TRIGGER_COUNT || 1);
+          const CONCURRENCY = Number(process.env.CONCURRENCY || 5);
+      
           async function main() {
             try {
               const authApp = createAppAuth({
                 appId: APP_ID,
                 privateKey: PRIVATE_KEY
               });
-
+      
               // 获取 App token
               const appAuthentication = await authApp({ type: "app" });
               const appOctokit = new Octokit({ auth: appAuthentication.token });
-
+      
               // 找安装 ID
               const installsRes = await appOctokit.rest.apps.listInstallations();
-
+      
               let installationId = null;
-
+      
               for (const inst of installsRes.data) {
                 try {
                   await appOctokit.rest.apps.getRepoInstallation({
@@ -70,38 +73,65 @@ jobs:
                   break;
                 } catch {}
               }
-
+      
               if (!installationId) throw new Error("Installation not found");
-
+      
               // 获取安装 token
               const installationAuth = await authApp({
                 type: "installation",
                 installationId
               });
-
+      
               const octokit = new Octokit({
                 auth: installationAuth.token
               });
-
-              console.log("Triggering workflow:", WORKFLOW_FILE);
-
-              // ⭐ 触发 workflow_dispatch
-              await octokit.rest.actions.createWorkflowDispatch({
-                owner: OWNER,
-                repo: REPO,
-                workflow_id: WORKFLOW_FILE,
-                ref: REF
-              });
-
-              console.log("Workflow triggered successfully");
-
+      
+              console.log("Workflow:", WORKFLOW_FILE);
+              console.log("Total trigger count:", TRIGGER_COUNT);
+              console.log("Concurrency:", CONCURRENCY);
+      
+              let success = 0;
+              let fail = 0;
+      
+              async function triggerOnce(index) {
+                try {
+                  await octokit.rest.actions.createWorkflowDispatch({
+                    owner: OWNER,
+                    repo: REPO,
+                    workflow_id: WORKFLOW_FILE,
+                    ref: REF
+                  });
+      
+                  success++;
+                  console.log("Triggered:", index);
+                } catch (e) {
+                  fail++;
+                  console.log("Failed:", index, e.message);
+                }
+              }
+      
+              async function runBatch(batch) {
+                await Promise.all(batch.map(triggerOnce));
+              }
+      
+              const tasks = Array.from({ length: TRIGGER_COUNT }, (_, i) => i + 1);
+      
+              for (let i = 0; i < tasks.length; i += CONCURRENCY) {
+                const batch = tasks.slice(i, i + CONCURRENCY);
+                await runBatch(batch);
+              }
+      
+              console.log("Done");
+              console.log("Success:", success);
+              console.log("Fail:", fail);
+      
             } catch (err) {
               console.error("Error:", err);
               process.exit(1);
             }
           }
-
+      
           main();
           EOF
-
+      
           node trigger.js
