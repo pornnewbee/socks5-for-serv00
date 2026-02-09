@@ -1,10 +1,10 @@
-name: APP Run Workflow
+name: APP Trigger Specific Workflow
 
 on:
   workflow_dispatch:
 
 jobs:
-  cancel-runs:
+  trigger-workflow:
     runs-on: ubuntu-latest
 
     steps:
@@ -19,14 +19,21 @@ jobs:
           npm install @octokit/auth-app @octokit/rest
           jq '. + {"type":"module"}' package.json > package_tmp.json && mv package_tmp.json package.json
 
-      - name: Cancel workflow runs
+      - name: Trigger target workflow
         env:
           APP_ID: "2823042"
           PRIVATE_KEY: ${{ secrets.APP_PRIVATE_KEY }}
-          OWNER: "porndreamer"
+          OWNER: "wearingdurex"
           REPO: "codespace"
+
+          # ⭐ 要触发的 workflow 文件名
+          WORKFLOW_FILE: "showip.yml"
+
+          # ⭐ 触发分支
+          REF: "main"
+
         run: |
-          cat << 'EOF' > cancel.js
+          cat << 'EOF' > trigger.js
           import { createAppAuth } from '@octokit/auth-app';
           import { Octokit } from '@octokit/rest';
 
@@ -34,103 +41,67 @@ jobs:
           const PRIVATE_KEY = process.env.PRIVATE_KEY.replace(/\\n/g, "\n");
           const OWNER = process.env.OWNER;
           const REPO = process.env.REPO;
-          const TARGET_STATUS = ["in_progress","queued","waiting","pending","requested"];
-          const CONCURRENCY = 70; // 并发数量，可调
+          const WORKFLOW_FILE = process.env.WORKFLOW_FILE;
+          const REF = process.env.REF;
 
           async function main() {
             try {
-              const authApp = createAppAuth({ appId: APP_ID, privateKey: PRIVATE_KEY });
+              const authApp = createAppAuth({
+                appId: APP_ID,
+                privateKey: PRIVATE_KEY
+              });
 
-              // 获取安装 token
+              // 获取 App token
               const appAuthentication = await authApp({ type: "app" });
               const appOctokit = new Octokit({ auth: appAuthentication.token });
+
+              // 找安装 ID
               const installsRes = await appOctokit.rest.apps.listInstallations();
 
               let installationId = null;
-              for (const inst of installsRes.data) {
-                const repoInst = await appOctokit.rest.apps.getRepoInstallation({
-                  owner: OWNER,
-                  repo: REPO,
-                }).catch(() => null);
 
-                if (repoInst && repoInst.data) {
+              for (const inst of installsRes.data) {
+                try {
+                  await appOctokit.rest.apps.getRepoInstallation({
+                    owner: OWNER,
+                    repo: REPO
+                  });
                   installationId = inst.id;
                   break;
-                }
+                } catch {}
               }
 
               if (!installationId) throw new Error("Installation not found");
 
+              // 获取安装 token
               const installationAuth = await authApp({
                 type: "installation",
-                installationId,
+                installationId
               });
-              const octokit = new Octokit({ auth: installationAuth.token });
 
-              // 1️⃣ 先收集所有 run ID
-              const allRunIds = [];
+              const octokit = new Octokit({
+                auth: installationAuth.token
+              });
 
-              for (const status of TARGET_STATUS) {
-                let page = 1;
-                while (true) {
-                  const res = await octokit.rest.actions.listWorkflowRunsForRepo({
-                    owner: OWNER,
-                    repo: REPO,
-                    status,
-                    per_page: 100,
-                    page,
-                  });
+              console.log("Triggering workflow:", WORKFLOW_FILE);
 
-                  const runs = res.data.workflow_runs;
-                  console.log(`Status=${status} Page=${page} found ${runs.length} runs`);
+              // ⭐ 触发 workflow_dispatch
+              await octokit.rest.actions.createWorkflowDispatch({
+                owner: OWNER,
+                repo: REPO,
+                workflow_id: WORKFLOW_FILE,
+                ref: REF
+              });
 
-                  allRunIds.push(...runs.map(run => run.id));
-
-                  if (runs.length < 100) break;
-                  page++;
-                }
-              }
-
-              console.log(`Total runs to cancel: ${allRunIds.length}`);
-
-              // 2️⃣ 并发取消
-              let totalCanceled = 0;
-
-              async function cancelBatch(batch) {
-                await Promise.all(batch.map(async (runId) => {
-                  try {
-                    await octokit.rest.actions.cancelWorkflowRun({
-                      owner: OWNER,
-                      repo: REPO,
-                      run_id: runId,
-                    });
-                    totalCanceled++;
-                    console.log("Canceled run:", runId);
-                  } catch (e) {
-                    console.log("Failed to cancel run:", runId, e.message);
-                  }
-                }));
-              }
-
-              for (let i = 0; i < allRunIds.length; i += CONCURRENCY) {
-                const batch = allRunIds.slice(i, i + CONCURRENCY);
-                await cancelBatch(batch);
-              }
-
-              console.log("Total runs canceled:", totalCanceled);
+              console.log("Workflow triggered successfully");
 
             } catch (err) {
               console.error("Error:", err);
+              process.exit(1);
             }
           }
 
           main();
           EOF
 
-          node cancel.js
-
-
-          main();
-          EOF
-
-          node cancel.js
+          node trigger.js
