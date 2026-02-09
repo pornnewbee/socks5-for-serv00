@@ -10,42 +10,42 @@ CF_ACCOUNT_ID = os.environ["API_ACCOUNT_ID"]
 QUERY_ID = "gbax5izkb3b4b1y4ne9hgrja"
 
 API_URL = f"https://api.cloudflare.com/client/v4/accounts/{CF_ACCOUNT_ID}/workers/observability/telemetry/query"
+
 HEADERS = {
     "Authorization": f"Bearer {CF_API_TOKEN}",
     "Content-Type": "application/json"
 }
 
 # ========================
-# 时间窗口拆分
+# 时间窗口函数
 # ========================
-def split_day_to_hours(date):
-    """
-    date: datetime 对象（UTC），只用日期部分
-    返回 24 个 (start_ms, end_ms) tuple
-    """
+def get_days(days=7):
+    now = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    return [now - timedelta(days=i) for i in reversed(range(days))]
+
+# ========================
+# 拆分天为每 N 分钟 slice
+# ========================
+def split_day_to_minutes(day, interval=10):
     slices = []
-    for h in range(24):
-        start = date.replace(hour=h, minute=0, second=0, microsecond=0)
-        end = start.replace(minute=59, second=59, microsecond=999000)
-        slices.append((int(start.timestamp()*1000), int(end.timestamp()*1000)))
+    start_ms = int(day.replace(hour=0, minute=0, second=0, microsecond=0).timestamp() * 1000)
+    end_ms = int(day.replace(hour=23, minute=59, second=59, microsecond=999000).timestamp() * 1000)
+    step = interval * 60 * 1000
+    current = start_ms
+    while current <= end_ms:
+        slice_end = min(current + step - 1, end_ms)
+        slices.append((current, slice_end))
+        current += step
     return slices
 
-def get_days(days=7):
-    now = datetime.now(timezone.utc)
-    day_list = []
-    for i in range(days):
-        day = (now - timedelta(days=i)).replace(hour=0, minute=0, second=0, microsecond=0)
-        day_list.append(day)
-    return list(reversed(day_list))  # 早到晚顺序
-
 # ========================
-# API 查询函数（dry 查询写死 + offsetDirection）
+# API 查询函数（dry 查询写死）
 # ========================
 def query_logs(since, until, offset=None, limit=2000):
     payload = {
         "queryId": QUERY_ID,
         "limit": limit,
-        "dry": True,
+        "dry": True,  # dry 查询写死
         "view": "invocations",
         "timeframe": {"from": since, "to": until}
     }
@@ -64,11 +64,11 @@ def invocation_truncated(logs):
     return any(log.get("$workers", {}).get("truncated") for log in logs)
 
 # ========================
-# 拉取一个时间片的所有 logs
+# 拉取单个 slice
 # ========================
-def fetch_slice(since, until, limit=2000, sleep_sec=0.2):
+def fetch_slice(since, until, limit=2000, sleep_sec=0.1):
     offset = None
-    all_data = {}
+    slice_data = {}
     while True:
         data = query_logs(since, until, offset=offset, limit=limit)
         invocations = data.get("result", {}).get("invocations", {})
@@ -87,7 +87,8 @@ def fetch_slice(since, until, limit=2000, sleep_sec=0.2):
                     truncated_offset = prev_logs[-1]["$metadata"]["id"]
                 break
 
-        all_data.update(invocations)
+        # 合并数据，自动去重
+        slice_data.update(invocations)
 
         # 更新 offset
         if truncated_offset:
@@ -99,21 +100,19 @@ def fetch_slice(since, until, limit=2000, sleep_sec=0.2):
 
         time.sleep(sleep_sec)
 
-    return all_data
+    return slice_data
 
 # ========================
-# 主流程：多天 + 每天24小时 + 并发
+# 主流程
 # ========================
-def fetch_all_logs(days=7, limit=2000, max_workers=8):
+def fetch_all_logs(days=7, limit=2000, max_workers=8, interval_min=10):
     all_data = {}
-
     day_list = get_days(days)
 
     for day in day_list:
         print(f"=== Fetching day {day.date()} ===")
-        slices = split_day_to_hours(day)
+        slices = split_day_to_minutes(day, interval=interval_min)
 
-        # 并发拉取 24 个小时 slice
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             future_to_slice = {executor.submit(fetch_slice, s, e, limit): (s,e) for s,e in slices}
             for future in as_completed(future_to_slice):
@@ -131,7 +130,7 @@ def fetch_all_logs(days=7, limit=2000, max_workers=8):
 # MAIN
 # ========================
 if __name__ == "__main__":
-    logs = fetch_all_logs(days=7, limit=2000, max_workers=8)
+    logs = fetch_all_logs(days=7, limit=2000, max_workers=8, interval_min=10)
 
     total_logs = sum(len(v) for v in logs.values())
     print(f"Total requestIDs: {len(logs)}")
