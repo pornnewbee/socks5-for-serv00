@@ -8,10 +8,10 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
+      - name: Install dependencies
+        run: |
+          npm init -y
+          npm install @octokit/auth-app @octokit/rest
 
       - name: Trigger target workflow
         env:
@@ -34,8 +34,11 @@ jobs:
       
         run: |
           cat << 'EOF' > trigger.js
-          import { createAppAuth } from '@octokit/auth-app';
-          import { Octokit } from '@octokit/rest';
+          import pkgAuth from '@octokit/auth-app';
+          import pkgRest from '@octokit/rest';
+          
+          const { createAppAuth } = pkgAuth;
+          const { Octokit } = pkgRest;
       
           const APP_ID = process.env.APP_ID;
           const PRIVATE_KEY = process.env.PRIVATE_KEY.replace(/\\n/g, "\n");
