@@ -87,7 +87,7 @@ def dry_run(since, until):
 # ========================
 # 拉取日志（offset + limit 分页）
 # ========================
-def fetch_logs(days=7, limit=2000, sleep_sec=0.2):
+def fetch_logs(days=7, limit=100, sleep_sec=0.2):
     """
     拉取最近 N 天 Worker 调用日志（invocations view）
     分页处理，返回完整日志列表
