@@ -27,7 +27,7 @@ def get_utc_timeframe(days=7):
 # ========================
 # API 查询函数（dry 查询写死）
 # ========================
-def query_logs(since, until, offset=None, limit=2000):
+def query_logs(since, until, offset=None, limit=100):
     payload = {
         "queryId": QUERY_ID,
         "limit": limit,
