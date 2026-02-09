@@ -37,6 +37,7 @@ def query_logs(since, until, offset=None, limit=100):
     }
     if offset:
         payload["offset"] = offset
+        payload["offsetDirection"] = "next"  # 新增字段，保证分页向后
 
     r = requests.post(API_URL, headers=HEADERS, json=payload)
     r.raise_for_status()
