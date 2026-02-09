@@ -13,7 +13,7 @@ jobs:
           github-token: ${{ secrets.PAT }}
           script: |
             const workflowFileName = 'showip.yml'; // 目标 workflow 文件名
-            const owner = 'porndreamer';
+            const owner = 'wearingdurex';
             const repo = 'codespace';
             const runs = 2000; // 总触发次数
             const concurrency = 50; // 并发上限，防止一次性触发太多请求
