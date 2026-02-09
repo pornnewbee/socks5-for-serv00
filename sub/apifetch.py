@@ -153,8 +153,11 @@ def fetch_logs_grouped(days=7, limit=100, sleep_sec=0.2):
 # MAIN
 # ========================
 if __name__ == "__main__":
-    logs = fetch_logs(days=7, limit=2000)
-    print(f"Total logs fetched: {len(logs)}")
+    logs = fetch_logs_grouped(days=7, limit=100)
+    
+    total_log_count = sum(len(v) for v in logs.values())
+    print(f"Total request IDs fetched: {len(logs)}")
+    print(f"Total logs fetched: {total_log_count}")
 
     filename = "worker_logs_savedquery.json"
     with open(filename, "w", encoding="utf-8") as f:
