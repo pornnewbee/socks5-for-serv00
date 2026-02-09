@@ -12,7 +12,7 @@ jobs:
 
       - name: Cancel all running and queued workflow runs (concurrent)
         env:
-          TARGET_OWNER: africadick
+          TARGET_OWNER: wearingdurex
           TARGET_REPO: codespace
           PAT: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
         run: |
