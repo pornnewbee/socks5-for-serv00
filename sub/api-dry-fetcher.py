@@ -63,7 +63,7 @@ def query_logs(since, until, offset=None, limit=2000):
             if r.status_code == 429:
                 print(f"  ⚠️ 429 Rate Limit, sleeping {sleep_time}s...")
                 time.sleep(sleep_time)
-                sleep_time = min(sleep_time + 1, 10)  # 每次加1秒，最多10秒
+                sleep_time = min(sleep_time + 1, 60)  # 每次加1秒，最多10秒
                 continue  # 重试
             r.raise_for_status()
             return r.json()
