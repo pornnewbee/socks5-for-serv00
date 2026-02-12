@@ -32,7 +32,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: worker-logs
-          path: |
-            *.json
-            **/*.json
+          path: /mnt/*.json
           if-no-files-found: warn
