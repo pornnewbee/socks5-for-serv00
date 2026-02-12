@@ -106,12 +106,13 @@ def fetch_slice(since, until, limit=2000, sleep_sec=0.1):
 # 主流程
 # ========================
 def fetch_all_logs(days=7, limit=2000, max_workers=20, interval_min=10):
-    all_data = {}
     day_list = get_days(days)
 
     for day in day_list:
         print(f"=== Fetching day {day.date()} ===")
         slices = split_day_to_minutes(day, interval=interval_min)
+
+        day_data = {}  # 当天的日志
 
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             future_to_slice = {executor.submit(fetch_slice, s, e, limit): (s,e) for s,e in slices}
@@ -119,24 +120,23 @@ def fetch_all_logs(days=7, limit=2000, max_workers=20, interval_min=10):
                 s,e = future_to_slice[future]
                 try:
                     slice_data = future.result()
-                    all_data.update(slice_data)
+                    day_data.update(slice_data)
                     print(f"  ✅ {datetime.utcfromtimestamp(s/1000)} → {datetime.utcfromtimestamp(e/1000)} fetched {len(slice_data)} requestIDs")
                 except Exception as ex:
                     print(f"  ❌ {datetime.utcfromtimestamp(s/1000)} → {datetime.utcfromtimestamp(e/1000)} failed: {ex}")
 
-    return all_data
+        # 写当天日志到单独文件
+        output_file = f"/mnt/logs_{day.date()}.json"
+        with open(output_file, "w", encoding="utf-8") as f:
+            json.dump(day_data, f, ensure_ascii=False, indent=2)
+        print(f"Saved {output_file} with {len(day_data)} requestIDs")
+
+    return
 
 # ========================
 # MAIN
 # ========================
 if __name__ == "__main__":
-    logs = fetch_all_logs(days=7, limit=2000, max_workers=8, interval_min=5)
+    # 按天拉取日志并写文件
+    fetch_all_logs(days=7, limit=2000, max_workers=8, interval_min=5)
 
-    total_logs = sum(len(v) for v in logs.values())
-    print(f"Total requestIDs: {len(logs)}")
-    print(f"Total logs: {total_logs}")
-
-    with open("/mnt/dry_logs.json", "w", encoding="utf-8") as f:
-        json.dump(logs, f, ensure_ascii=False, indent=2)
-
-    print("Saved logs_dry_7days.json")
