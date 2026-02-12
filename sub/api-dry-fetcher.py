@@ -44,31 +44,48 @@ def split_day_to_minutes(day, interval=10):
 # ========================
 # API 查询函数（带 429 自适应重试）
 # ========================
-def query_logs(since, until, offset=None, limit=2000):
-    sleep_time = 5  # 初始 429 等待时间
+def query_logs(since, until, offset=None, limit=2000, max_retries=99):
+    sleep_time = 5
+    retries = 0
     while True:
         payload = {
             "queryId": QUERY_ID,
             "limit": limit,
-            "dry": True,  # dry 查询写死
+            "dry": True,
             "view": "invocations",
             "timeframe": {"from": since, "to": until}
         }
         if offset:
             payload["offset"] = offset
             payload["offsetDirection"] = "next"
-
         try:
             r = requests.post(API_URL, headers=HEADERS, json=payload)
             if r.status_code == 429:
                 print(f"  ⚠️ 429 Rate Limit, sleeping {sleep_time}s...")
                 time.sleep(sleep_time)
-                sleep_time = min(sleep_time + 1, 60)  # 每次加1秒，最多10秒
-                continue  # 重试
+                sleep_time = min(sleep_time + 1, 50)
+                continue
+            elif r.status_code >= 500:
+                # 5xx 错误重试
+                if retries < max_retries:
+                    retries += 1
+                    wait = min(2, 10)
+                    print(f"  ⚠️ {r.status_code} Server Error, retry {retries}/{max_retries} after {wait}s...")
+                    time.sleep(wait)
+                    continue
+                else:
+                    r.raise_for_status()
             r.raise_for_status()
             return r.json()
         except requests.RequestException as ex:
-            raise ex
+            if retries < max_retries:
+                retries += 1
+                wait = min(sleep_time + retries, 10)
+                print(f"  ⚠️ RequestException, retry {retries}/{max_retries} after {wait}s...")
+                time.sleep(wait)
+                continue
+            else:
+                raise ex
 
 
 # ========================
