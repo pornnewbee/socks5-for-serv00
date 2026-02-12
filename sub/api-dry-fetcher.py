@@ -105,7 +105,7 @@ def fetch_slice(since, until, limit=2000, sleep_sec=0.1):
 # ========================
 # 主流程
 # ========================
-def fetch_all_logs(days=7, limit=2000, max_workers=8, interval_min=10):
+def fetch_all_logs(days=7, limit=2000, max_workers=20, interval_min=10):
     all_data = {}
     day_list = get_days(days)
 
@@ -130,13 +130,13 @@ def fetch_all_logs(days=7, limit=2000, max_workers=8, interval_min=10):
 # MAIN
 # ========================
 if __name__ == "__main__":
-    logs = fetch_all_logs(days=7, limit=2000, max_workers=8, interval_min=10)
+    logs = fetch_all_logs(days=7, limit=2000, max_workers=8, interval_min=5)
 
     total_logs = sum(len(v) for v in logs.values())
     print(f"Total requestIDs: {len(logs)}")
     print(f"Total logs: {total_logs}")
 
-    with open("logs_dry_7days.json", "w", encoding="utf-8") as f:
+    with open("/mnt/dry_logs.json", "w", encoding="utf-8") as f:
         json.dump(logs, f, ensure_ascii=False, indent=2)
 
     print("Saved logs_dry_7days.json")
