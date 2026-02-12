@@ -24,6 +24,7 @@ jobs:
           CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
           API_ACCOUNT_ID: ${{ secrets.API_ACCOUNT_ID }}
         run: |
+          sudo chmod 777 /mnt
           python sub/api-dry-fetcher.py
 
       # ⭐ 关键：上传日志文件
