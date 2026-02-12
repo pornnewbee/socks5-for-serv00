@@ -41,21 +41,35 @@ def split_day_to_minutes(day, interval=10):
 # ========================
 # API 查询函数（dry 查询写死）
 # ========================
+# ========================
+# API 查询函数（带 429 自适应重试）
+# ========================
 def query_logs(since, until, offset=None, limit=2000):
-    payload = {
-        "queryId": QUERY_ID,
-        "limit": limit,
-        "dry": True,  # dry 查询写死
-        "view": "invocations",
-        "timeframe": {"from": since, "to": until}
-    }
-    if offset:
-        payload["offset"] = offset
-        payload["offsetDirection"] = "next"
+    sleep_time = 5  # 初始 429 等待时间
+    while True:
+        payload = {
+            "queryId": QUERY_ID,
+            "limit": limit,
+            "dry": True,  # dry 查询写死
+            "view": "invocations",
+            "timeframe": {"from": since, "to": until}
+        }
+        if offset:
+            payload["offset"] = offset
+            payload["offsetDirection"] = "next"
 
-    r = requests.post(API_URL, headers=HEADERS, json=payload)
-    r.raise_for_status()
-    return r.json()
+        try:
+            r = requests.post(API_URL, headers=HEADERS, json=payload)
+            if r.status_code == 429:
+                print(f"  ⚠️ 429 Rate Limit, sleeping {sleep_time}s...")
+                time.sleep(sleep_time)
+                sleep_time = min(sleep_time + 1, 10)  # 每次加1秒，最多10秒
+                continue  # 重试
+            r.raise_for_status()
+            return r.json()
+        except requests.RequestException as ex:
+            raise ex
+
 
 # ========================
 # 检查 invocation 是否截断
