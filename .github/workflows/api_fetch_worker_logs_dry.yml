@@ -2,6 +2,8 @@ name: Fetch Sub Logs via API D
 
 on:
   workflow_dispatch:
+  schedule:
+    - cron: '0 0 * * *'   # 每天 UTC 00:00 运行
 
 jobs:
   fetch-logs:
