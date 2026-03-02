@@ -12,12 +12,13 @@
 					<string>cmwap</string>
 					<key>username</key>
 					<string></string>
-					<key>type-mask</key>
+					
+                                        <key>type-mask</key>
 					<integer>49</integer>
 					<key>proxy</key>
-					<string>10.0.0.172</string>
-					<key>proxyPort</key>
-					<integer>80</integer>
+<string>10.0.0.172</string>
+<key>proxyPort</key>
+<integer>80</integer>
 				</dict>
 			</array>
 			<key>PayloadDisplayName</key>
