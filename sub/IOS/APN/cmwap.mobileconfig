@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>PayloadContent</key>
+	<array>
+		<dict>
+			<key>APNs</key>
+			<array>
+				<dict>
+					<key>apn</key>
+					<key>Name</key>
+					<string>cmwap</string>
+					<key>username</key>
+					<string></string>
+					<key>type-mask</key>
+					<integer>49</integer>
+					<key>proxy</key>
+<string>10.0.0.172</string>
+<key>proxyPort</key>
+<integer>80</integer>
+				</dict>
+			</array>
+			<key>PayloadDisplayName</key>
+			<string></string>
+			<key>PayloadIdentifier</key>
+			<string>com.asshole.apn</string>
+			<key>PayloadType</key>
+			<string>com.apple.cellular</string>
+			<key>PayloadUUID</key>
+			<string>6B08253E-D5BB-4FC4-A5CD-825FB965B5AA</string>
+			<key>PayloadVersion</key>
+			<integer>1</integer>
+		</dict>
+	</array>
+	<key>PayloadDisplayName</key>
+	<string>CMWAP APN Profile</string>
+	<key>PayloadDescription</key>
+	<string>Apply APN-setting to your iOS device.</string>
+	<key>PayloadIdentifier</key>
+	<string>com.asshole.apn</string>
+	<key>PayloadRemovalDisallowed</key>
+	<false/>
+	<key>PayloadType</key>
+	<string>Configuration</string>
+	<key>PayloadUUID</key>
+	<string>560EB0FF-BE89-46C7-8DC9-6CA77E1A4453</string>
+	<key>PayloadVersion</key>
+	<integer>1</integer>
+</dict>
+</plist>
