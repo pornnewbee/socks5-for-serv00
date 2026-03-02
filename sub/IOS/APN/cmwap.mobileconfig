@@ -8,7 +8,6 @@
 			<key>APNs</key>
 			<array>
 				<dict>
-					<key>apn</key>
 					<key>Name</key>
 					<string>cmwap</string>
 					<key>username</key>
