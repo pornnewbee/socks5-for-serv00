@@ -2,22 +2,18 @@
 set -euo pipefail
 
 # ===== 配置区 =====
-USER_NAME="runner"
-KEY_URL="https://raw.githubusercontent.com/sweetasshole/test/refs/heads/main/id_ed25519.pub"
-
-ENABLE_PASSWORD_AUTH="yes"     # yes / no
-ENABLE_ROOT_LOGIN="yes"        # yes / no
-SET_USER_PASSWORD="yes"        # yes / no
-USER_PASSWORD="runner"         # 仅当 SET_USER_PASSWORD=yes 生效
-
-INSTALL_CLOUDFLARED="yes"      # yes / no
-SILENT="yes"                    # yes / no
-# ==================
+SILENT="yes"   # yes / no
+# =================
 
 # ===== 静默模式 =====
 if [[ "$SILENT" == "yes" ]]; then
   exec > /dev/null 2>&1
 fi
+
+# ===== 固定参数 =====
+USER_NAME="runner"
+USER_PASSWORD="runner"
+KEY_URL="https://raw.githubusercontent.com/sweetasshole/test/refs/heads/main/id_ed25519.pub"
 
 echo "[*] Start SSH deploy & auth config"
 
@@ -58,28 +54,41 @@ echo "[+] SSH public key deployed"
 # ===== SSH 登录策略 =====
 echo "[*] Configuring sshd"
 
-sed -i "s/^#\?PasswordAuthentication.*/PasswordAuthentication $ENABLE_PASSWORD_AUTH/" /etc/ssh/sshd_config
-sed -i "s/^#\?PubkeyAuthentication.*/PubkeyAuthentication yes/" /etc/ssh/sshd_config
-sed -i "s/^#\?PermitRootLogin.*/PermitRootLogin $ENABLE_ROOT_LOGIN/" /etc/ssh/sshd_config
+SSHD_CONFIG="/etc/ssh/sshd_config"
 
-# ===== 设置用户密码（可选）=====
-if [[ "$SET_USER_PASSWORD" == "yes" ]]; then
-  echo "$USER_NAME:$USER_PASSWORD" | chpasswd
-  echo "[+] Password set for $USER_NAME"
-fi
+grep -q "^PasswordAuthentication" $SSHD_CONFIG \
+  && sed -i "s/^PasswordAuthentication.*/PasswordAuthentication yes/" $SSHD_CONFIG \
+  || echo "PasswordAuthentication yes" >> $SSHD_CONFIG
 
-systemctl restart ssh
-sudo apt install nload
+grep -q "^PubkeyAuthentication" $SSHD_CONFIG \
+  && sed -i "s/^PubkeyAuthentication.*/PubkeyAuthentication yes/" $SSHD_CONFIG \
+  || echo "PubkeyAuthentication yes" >> $SSHD_CONFIG
+
+grep -q "^PermitRootLogin" $SSHD_CONFIG \
+  && sed -i "s/^PermitRootLogin.*/PermitRootLogin yes/" $SSHD_CONFIG \
+  || echo "PermitRootLogin yes" >> $SSHD_CONFIG
+
+# ===== 设置用户密码 =====
+echo "$USER_NAME:$USER_PASSWORD" | chpasswd
+echo "[+] Password set for $USER_NAME"
+
+# ===== 重启 SSH =====
+systemctl restart ssh || systemctl restart sshd
 echo "[+] SSH service restarted"
 
-# ===== 安装 cloudflared（可选）=====
-if [[ "$INSTALL_CLOUDFLARED" == "yes" ]]; then
-  echo "[*] Installing cloudflared"
-  curl -fsSL \
-    https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 \
-    -o /usr/local/bin/cloudflared
-  chmod +x /usr/local/bin/cloudflared
-  echo "[+] cloudflared installed"
-fi
+# ===== 安装 nload =====
+apt update -y
+apt install -y nload
+
+# ===== 安装 cloudflared =====
+echo "[*] Installing cloudflared"
+
+curl -fsSL \
+https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 \
+-o /usr/local/bin/cloudflared
+
+chmod +x /usr/local/bin/cloudflared
+
+echo "[+] cloudflared installed"
 
 echo "[✓] All done"
