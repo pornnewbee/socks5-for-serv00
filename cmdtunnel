@@ -1,5 +1,5 @@
 cloudflared access ssh --hostname ssh.exa.com localhost:11441
-curl --resolve www.nodeseek.com:80:104.26.11.72 http://www.nodeseek.com/
+curl --resolve www.nodeseek.com:80:104.18.33.45 http://www.nodeseek.com/
 
 runner@runnervmwffz4:~$ gh run download 21824932101 \
   -R pornnewbee/socks5-for-serv00 \
