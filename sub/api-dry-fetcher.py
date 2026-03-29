@@ -3,6 +3,7 @@ import requests
 from datetime import datetime, timedelta, timezone
 import json
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 CF_API_TOKEN = os.environ["CF_API_TOKEN"]
 CF_ACCOUNT_ID = os.environ["API_ACCOUNT_ID"]
@@ -15,6 +16,31 @@ HEADERS = {
     "Content-Type": "application/json"
 }
 
+# ========================
+# 时间窗口函数
+# ========================
+def get_days(days=7):
+    now = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    return [now - timedelta(days=i) for i in reversed(range(days))]
+
+# ========================
+# 拆分天为每 N 分钟 slice
+# ========================
+def split_day_to_minutes(day, interval=10):
+    slices = []
+    start_ms = int(day.replace(hour=0, minute=0, second=0, microsecond=0).timestamp() * 1000)
+    end_ms = int(day.replace(hour=23, minute=59, second=59, microsecond=999000).timestamp() * 1000)
+    step = interval * 60 * 1000
+    current = start_ms
+    while current <= end_ms:
+        slice_end = min(current + step - 1, end_ms)
+        slices.append((current, slice_end))
+        current += step
+    return slices
+
+# ========================
+# API 查询函数（dry 查询写死）
+# ========================
 # ========================
 # API 查询函数（带 429 自适应重试）
 # ========================
@@ -40,6 +66,7 @@ def query_logs(since, until, offset=None, limit=2000, max_retries=99):
                 sleep_time = min(sleep_time + 1, 50)
                 continue
             elif r.status_code >= 500:
+                # 5xx 错误重试
                 if retries < max_retries:
                     retries += 1
                     wait = min(2, 10)
@@ -60,6 +87,7 @@ def query_logs(since, until, offset=None, limit=2000, max_retries=99):
             else:
                 raise ex
 
+
 # ========================
 # 检查 invocation 是否截断
 # ========================
@@ -67,18 +95,18 @@ def invocation_truncated(logs):
     return any(log.get("$workers", {}).get("truncated") for log in logs)
 
 # ========================
-# 拉取指定时间范围的所有日志（分页）
+# 拉取单个 slice
 # ========================
-def fetch_logs_range(since, until, limit=2000, sleep_sec=0.1):
+def fetch_slice(since, until, limit=2000, sleep_sec=0.1):
     offset = None
-    all_data = {}
+    slice_data = {}
     while True:
         data = query_logs(since, until, offset=offset, limit=limit)
         invocations = data.get("result", {}).get("invocations", {})
         if not invocations:
             break
 
-        # 检查截断并更新 offset
+        # 检查截断
         truncated_offset = None
         keys = list(invocations.keys())
         for idx, rid in enumerate(keys):
@@ -90,8 +118,10 @@ def fetch_logs_range(since, until, limit=2000, sleep_sec=0.1):
                     truncated_offset = prev_logs[-1]["$metadata"]["id"]
                 break
 
-        all_data.update(invocations)
+        # 合并数据，自动去重
+        slice_data.update(invocations)
 
+        # 更新 offset
         if truncated_offset:
             offset = truncated_offset
         else:
@@ -101,21 +131,42 @@ def fetch_logs_range(since, until, limit=2000, sleep_sec=0.1):
 
         time.sleep(sleep_sec)
 
-    return all_data
+    return slice_data
+
+# ========================
+# 主流程
+# ========================
+def fetch_all_logs(days=7, limit=2000, max_workers=20, interval_min=10):
+    day_list = get_days(days)
+
+    for day in day_list:
+        print(f"=== Fetching day {day.date()} ===")
+        slices = split_day_to_minutes(day, interval=interval_min)
+
+        day_data = {}  # 当天的日志
+
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_to_slice = {executor.submit(fetch_slice, s, e, limit): (s,e) for s,e in slices}
+            for future in as_completed(future_to_slice):
+                s,e = future_to_slice[future]
+                try:
+                    slice_data = future.result()
+                    day_data.update(slice_data)
+                    print(f"  ✅ {datetime.utcfromtimestamp(s/1000)} → {datetime.utcfromtimestamp(e/1000)} fetched {len(slice_data)} requestIDs")
+                except Exception as ex:
+                    print(f"  ❌ {datetime.utcfromtimestamp(s/1000)} → {datetime.utcfromtimestamp(e/1000)} failed: {ex}")
+
+        # 写当天日志到单独文件
+        output_file = f"/mnt/logs_{day.date()}.json"
+        with open(output_file, "w", encoding="utf-8") as f:
+            json.dump(day_data, f, ensure_ascii=False, indent=2)
+        print(f"Saved {output_file} with {len(day_data)} requestIDs")
+
+    return
 
 # ========================
 # MAIN
 # ========================
 if __name__ == "__main__":
-    # 定义时间范围（示例：过去7天）
-    start_time = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
-    end_time = datetime.now(timezone.utc).isoformat()
-
-    print(f"Fetching logs from {start_time} → {end_time} ...")
-    logs = fetch_logs_range(start_time, end_time, limit=2000)
-    print(f"Fetched {len(logs)} requestIDs")
-
-    output_file = f"/mnt/logs_{datetime.now(timezone.utc).date()}.json"
-    with open(output_file, "w", encoding="utf-8") as f:
-        json.dump(logs, f, ensure_ascii=False, indent=2)
-    print(f"Saved {output_file}")
+    # 按天拉取日志并写文件
+    fetch_all_logs(days=7, limit=2000, max_workers=4, interval_min=5)
