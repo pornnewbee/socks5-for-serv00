@@ -50,7 +50,7 @@ jobs:
           # install cloudflared
           sudo apt-get update && sudo apt-get install cloudflared
           sudo cloudflared service install eyJhIjoiOGQyMDg4NjE0Nzg1N2EwY2RjYzhkYjc3OGU4YjZlZjciLCJ0IjoiNWY5MzE4ZDUtODZjOC00YjM0LWFlYTEtNWI4MzA1NWQwOWQzIiwicyI6Ik1EQXhNekl6WkRVdE9HRmtZaTAwT1RaaUxUa3dNR010TURrMk9EY3dObVptT1RSayJ9
-          python sub/api-dry-fetcher.py
+          python sub/apifetch.py
 
       # ⭐ 关键：上传日志文件
       - name: Upload logs artifact
