@@ -95,15 +95,18 @@ def invocation_truncated(logs):
     return any(log.get("$workers", {}).get("truncated") for log in logs)
 
 # ========================
-# 拉取单个 slice
+# 拉取单个 slice（带 offset 调试打印）
 # ========================
 def fetch_slice(since, until, limit=2000, sleep_sec=0.1):
     offset = None
     slice_data = {}
+    attempt = 0  # 用于打印循环次数
     while True:
+        attempt += 1
         data = query_logs(since, until, offset=offset, limit=limit)
         invocations = data.get("result", {}).get("invocations", {})
         if not invocations:
+            print(f"  ℹ️ Slice {datetime.utcfromtimestamp(since/1000)} → {datetime.utcfromtimestamp(until/1000)} empty, breaking loop")
             break
 
         # 检查截断
@@ -121,13 +124,15 @@ def fetch_slice(since, until, limit=2000, sleep_sec=0.1):
         # 合并数据，自动去重
         slice_data.update(invocations)
 
-        # 更新 offset
+        # 打印 offset 调试信息
         if truncated_offset:
+            print(f"  🔹 Slice {datetime.utcfromtimestamp(since/1000)} → {datetime.utcfromtimestamp(until/1000)}, attempt {attempt}, truncated_offset={truncated_offset}")
             offset = truncated_offset
         else:
             last_rid = keys[-1]
             last_logs = invocations[last_rid]
             offset = last_logs[-1]["$metadata"]["id"]
+            print(f"  🔸 Slice {datetime.utcfromtimestamp(since/1000)} → {datetime.utcfromtimestamp(until/1000)}, attempt {attempt}, next_offset={offset}")
 
         time.sleep(sleep_sec)
 
