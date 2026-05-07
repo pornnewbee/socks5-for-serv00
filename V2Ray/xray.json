@@ -32,7 +32,7 @@
   ],
   "inbounds": [
     {
-      "port": 11451,
+      "port": 10086,
       "listen": "0.0.0.0",
       "protocol": "vless",
       "settings": {
