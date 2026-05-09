@@ -1,5 +1,4 @@
 import base64
-import struct
 import time
 import hashlib
 import requests
@@ -12,26 +11,29 @@ from cryptography.x509.oid import ExtensionOID, NameOID
 LOG_LIST_URL = "https://www.gstatic.com/ct/log_list/v3/log_list.json"
 
 BATCH_SIZE = 200
-TOTAL = 100000   # 每个 log 扫多少 entries
+TOTAL = 50000   # 每个Log的条数
 OUTPUT_FILE = "domains.txt"
 
+session = requests.Session()
+
 
 # ---------------------------
-# 获取所有 CT logs（官方源）
+# 获取 usable CT logs
 # ---------------------------
 def get_ct_logs():
-    r = requests.get(LOG_LIST_URL, timeout=30)
+    r = session.get(LOG_LIST_URL, timeout=30)
     r.raise_for_status()
-
     data = r.json()
 
     logs = []
 
     for operator in data["operators"]:
         for log in operator["logs"]:
-            state = log.get("state", {}).get("usable", {}).get("state")
 
-            if state == "usable":
+            state = log.get("state", {})
+
+            # usable
+            if "usable" in state:
                 logs.append({
                     "name": log["description"],
                     "url": log["url"]
@@ -44,35 +46,45 @@ def get_ct_logs():
 # CT API
 # ---------------------------
 def get_tree_size(log_url):
-    r = requests.get(f"{log_url}/ct/v1/get-sth", timeout=30)
+    r = session.get(f"{log_url}/ct/v1/get-sth", timeout=30)
     r.raise_for_status()
     return r.json()["tree_size"]
 
 
 def fetch_entries(log_url, start, end):
-    for _ in range(3):
-        try:
-            r = requests.get(
-                f"{log_url}/ct/v1/get-entries?start={start}&end={end}",
-                timeout=60
-            )
-            r.raise_for_status()
-            return r.json()["entries"]
-        except Exception as e:
-            print(f"[retry] {log_url}: {e}")
-            time.sleep(2)
-    return []
+    try:
+        r = session.get(
+            f"{log_url}/ct/v1/get-entries?start={start}&end={end}",
+            timeout=60
+        )
+        r.raise_for_status()
+        return r.json().get("entries", [])
+    except Exception as e:
+        print(f"[error] fetch_entries {log_url}: {e}")
+        return []
 
 
 # ---------------------------
-# CT leaf parser
+# leaf -> cert
 # ---------------------------
 def extract_cert(leaf_input_b64):
     try:
         data = base64.b64decode(leaf_input_b64)
 
-        cert_len = struct.unpack(">I", b"\x00" + data[12:15])[0]
-        cert = data[15:15 + cert_len]
+        # CT MerkleTreeLeaf format:
+        # [0] version
+        # [1] leaf_type
+        # ...
+        # ASN.1 Cert starts at fixed offset
+        # (标准 CT RFC6962)
+        if len(data) < 10:
+            return None
+
+        # skip header (RFC6962 compatible)
+        cert_start = 5
+
+        cert_len = int.from_bytes(data[cert_start:cert_start + 3], "big")
+        cert = data[cert_start + 3:cert_start + 3 + cert_len]
 
         return cert
     except:
@@ -80,7 +92,7 @@ def extract_cert(leaf_input_b64):
 
 
 # ---------------------------
-# domain extractor
+# extract domains
 # ---------------------------
 def extract_domains(cert):
     domains = set()
@@ -91,7 +103,7 @@ def extract_domains(cert):
         # CN
         try:
             cn = c.subject.get_attributes_for_oid(NameOID.COMMON_NAME)[0].value
-            domains.add(cn)
+            domains.add(cn.lower())
         except:
             pass
 
@@ -100,8 +112,10 @@ def extract_domains(cert):
             san = c.extensions.get_extension_for_oid(
                 ExtensionOID.SUBJECT_ALTERNATIVE_NAME
             )
+
             for d in san.value.get_values_for_type(x509.DNSName):
-                domains.add(d)
+                domains.add(d.lower())
+
         except:
             pass
 
@@ -116,7 +130,7 @@ def extract_domains(cert):
 # ---------------------------
 def main():
 
-    print("[+] loading CT logs from official source...")
+    print("[+] loading CT logs...")
 
     logs = get_ct_logs()
 
@@ -133,8 +147,7 @@ def main():
 
             log_url = log["url"]
 
-            print(f"\n[+] scanning log: {log['name']}")
-            print(f"[+] url: {log_url}")
+            print(f"\n[+] log: {log['name']}")
 
             try:
                 tree_size = get_tree_size(log_url)
@@ -143,7 +156,7 @@ def main():
 
             start_index = max(0, tree_size - TOTAL)
 
-            print(f"[+] tree_size: {tree_size}")
+            print(f"[+] size: {tree_size}")
 
             for start in range(start_index, tree_size, BATCH_SIZE):
 
@@ -157,9 +170,6 @@ def main():
                     if not cert:
                         continue
 
-                    # -------------------------
-                    # ⭐ cert 级去重（关键）
-                    # -------------------------
                     cert_hash = hashlib.sha256(cert).hexdigest()
 
                     if cert_hash in seen_certs:
@@ -170,12 +180,11 @@ def main():
                     domains = extract_domains(cert)
 
                     for d in domains:
-                        d = d.lower().strip()
+                        d = d.strip().lower()
 
                         if not d:
                             continue
 
-                        # domain 去重
                         if d in seen_domains:
                             continue
 
@@ -184,14 +193,15 @@ def main():
                         f.write(d + "\n")
                         written += 1
 
+                # 防CT限流（很重要）
+                time.sleep(0.2)
                 f.flush()
 
-            print(f"[+] current unique domains: {written}")
+            print(f"[+] domains: {written}")
 
     print("\n[+] DONE")
-    print(f"[+] certs seen: {len(seen_certs)}")
+    print(f"[+] certs: {len(seen_certs)}")
     print(f"[+] domains: {written}")
-    print(f"[+] saved to {OUTPUT_FILE}")
 
 
 if __name__ == "__main__":
