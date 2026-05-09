@@ -8,7 +8,7 @@ from cryptography.hazmat.backends import default_backend
 from cryptography.x509.oid import ExtensionOID
 
 
-LOG_URL = "https://ct.googleapis.com/logs/argon2025"
+LOG_URL = "https://ct.googleapis.com/logs/argon2026h1"
 
 # 抓取最近多少条 CT entries
 TOTAL = 10000
