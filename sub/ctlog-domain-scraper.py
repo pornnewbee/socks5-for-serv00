@@ -15,7 +15,7 @@ BATCH_SIZE = 200
 TOTAL = 50000
 OUTPUT_FILE = "domains.txt"
 
-MAX_WORKERS = 4   # ⭐ 并发log数量（建议3~6）
+MAX_WORKERS = 8   # ⭐ 并发log数量（建议3~6）
 
 session = requests.Session()
 
