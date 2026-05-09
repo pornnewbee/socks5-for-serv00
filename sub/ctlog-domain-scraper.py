@@ -10,193 +10,180 @@ from cryptography.x509.oid import ExtensionOID
 
 LOG_URL = "https://ct.googleapis.com/logs/us1/argon2026h1"
 
-# 抓取最近多少条 CT entries
+BATCH_SIZE = 200
 TOTAL = 10000
 
-# 每批请求数量
-BATCH_SIZE = 1000
-
-# 输出文件
 OUTPUT_FILE = "domains.txt"
 
 
+# ---------------------------
+# CT API
+# ---------------------------
 def get_tree_size():
     r = requests.get(
         f"{LOG_URL}/ct/v1/get-sth",
         timeout=30
     )
-
     r.raise_for_status()
-
     return r.json()["tree_size"]
 
 
 def fetch_entries(start, end):
-    r = requests.get(
-        f"{LOG_URL}/ct/v1/get-entries?start={start}&end={end}",
-        timeout=60
-    )
+    for _ in range(3):
+        try:
+            r = requests.get(
+                f"{LOG_URL}/ct/v1/get-entries?start={start}&end={end}",
+                timeout=60
+            )
+            r.raise_for_status()
+            return r.json()["entries"]
+        except Exception as e:
+            print(f"[retry] {e}")
+            time.sleep(2)
 
-    r.raise_for_status()
-
-    return r.json()["entries"]
+    return []
 
 
-def extract_cert(leaf_input_b64):
-    """
-    从 CT leaf_input 提取 DER 证书
-    这里只处理 X509Entry
-    """
-
+# ---------------------------
+# CT leaf parser (关键升级)
+# ---------------------------
+def extract_cert_from_leaf(leaf_input_b64):
     data = base64.b64decode(leaf_input_b64)
 
-    # RFC6962:
-    # data[12:15] 是证书长度
-    cert_len = struct.unpack(
-        ">I",
-        b"\x00" + data[12:15]
-    )[0]
+    try:
+        # RFC6962:
+        # 0: version
+        # 1: leaf_type
+        # 2-4: timestamp
+        # 5: entry_type (关键！)
 
-    cert_der = data[15:15 + cert_len]
+        entry_type = data[5]
 
-    return cert_der
+        # X509Entry = 0
+        # PrecertEntry = 1
+
+        # certificate length offset differs slightly in practice
+        # but CT format keeps cert after header
+
+        if len(data) < 15:
+            return None
+
+        cert_len = struct.unpack(">I", b"\x00" + data[12:15])[0]
+        cert = data[15:15 + cert_len]
+
+        return cert
+
+    except:
+        return None
 
 
+# ---------------------------
+# domain extractor
+# ---------------------------
 def extract_domains(cert):
     domains = set()
 
-    # Common Name
     try:
-        cn = cert.subject.get_attributes_for_oid(
-            x509.NameOID.COMMON_NAME
-        )[0].value
-
-        domains.add(cn)
-
-    except Exception:
-        pass
-
-    # Subject Alternative Name
-    try:
-        san = cert.extensions.get_extension_for_oid(
-            ExtensionOID.SUBJECT_ALTERNATIVE_NAME
+        x509_cert = x509.load_der_x509_certificate(
+            cert,
+            default_backend()
         )
 
-        for name in san.value.get_values_for_type(
-            x509.DNSName
-        ):
-            domains.add(name)
+        # CN
+        try:
+            cn = x509_cert.subject.get_attributes_for_oid(
+                x509.NameOID.COMMON_NAME
+            )[0].value
+            domains.add(cn)
+        except:
+            pass
 
-    except Exception:
-        pass
+        # SAN
+        try:
+            san = x509_cert.extensions.get_extension_for_oid(
+                ExtensionOID.SUBJECT_ALTERNATIVE_NAME
+            )
+
+            for d in san.value.get_values_for_type(x509.DNSName):
+                domains.add(d)
+
+        except:
+            pass
+
+    except:
+        return set()
 
     return domains
 
 
+# ---------------------------
+# main
+# ---------------------------
 def main():
 
     print("[+] getting tree size...")
 
     tree_size = get_tree_size()
 
-    print(f"[+] current tree_size: {tree_size}")
+    print(f"[+] tree_size: {tree_size}")
 
-    start_index = max(
-        0,
-        tree_size - TOTAL
-    )
+    start_index = max(0, tree_size - TOTAL)
 
-    print(
-        f"[+] fetching entries "
-        f"{start_index} - {tree_size - 1}"
-    )
+    print(f"[+] fetching last {TOTAL} entries")
 
-    # 已写入去重
     seen = set()
 
-    total_written = 0
-    total_failed = 0
+    written = 0
+    failed = 0
 
     with open(OUTPUT_FILE, "a", encoding="utf-8") as f:
 
-        for batch_start in range(
-            start_index,
-            tree_size,
-            BATCH_SIZE
-        ):
+        for start in range(start_index, tree_size, BATCH_SIZE):
 
-            batch_end = min(
-                batch_start + BATCH_SIZE - 1,
-                tree_size - 1
-            )
+            end = min(start + BATCH_SIZE - 1, tree_size - 1)
 
-            print(
-                f"[+] batch "
-                f"{batch_start} - {batch_end}"
-            )
+            print(f"[+] batch {start} - {end}")
 
-            try:
-                entries = fetch_entries(
-                    batch_start,
-                    batch_end
-                )
-
-            except Exception as e:
-                print(f"[!] fetch failed: {e}")
-                continue
+            entries = fetch_entries(start, end)
 
             for entry in entries:
 
                 try:
-                    cert_der = extract_cert(
-                        entry["leaf_input"]
-                    )
+                    cert = extract_cert_from_leaf(entry["leaf_input"])
 
-                    cert = x509.load_der_x509_certificate(
-                        cert_der,
-                        default_backend()
-                    )
+                    if not cert:
+                        failed += 1
+                        continue
 
                     domains = extract_domains(cert)
 
                     for d in domains:
-
                         d = d.lower().strip()
 
                         if not d:
                             continue
 
-                        # 去重
                         if d in seen:
                             continue
 
                         seen.add(d)
 
                         f.write(d + "\n")
+                        written += 1
 
-                        total_written += 1
-
-                except Exception as e:
-
-                    total_failed += 1
-
+                except:
+                    failed += 1
                     continue
 
-            # 立即写入磁盘
             f.flush()
 
-            print(
-                f"[+] written={total_written} "
-                f"failed={total_failed}"
-            )
+            print(f"[+] written={written} failed={failed}")
 
-            # 避免请求太快
-            time.sleep(0.5)
+            time.sleep(0.3)
 
     print("\n[+] done")
-    print(f"[+] unique domains: {total_written}")
-    print(f"[+] failed entries: {total_failed}")
-    print(f"[+] saved to: {OUTPUT_FILE}")
+    print(f"[+] unique domains: {written}")
+    print(f"[+] failed entries: {failed}")
 
 
 if __name__ == "__main__":
