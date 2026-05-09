@@ -12,7 +12,7 @@ from cryptography.x509.oid import ExtensionOID, NameOID
 LOG_LIST_URL = "https://www.gstatic.com/ct/log_list/v3/log_list.json"
 
 BATCH_SIZE = 200
-TOTAL = 5000   # 每个 log 扫多少 entries
+TOTAL = 100000   # 每个 log 扫多少 entries
 OUTPUT_FILE = "domains.txt"
 
 
