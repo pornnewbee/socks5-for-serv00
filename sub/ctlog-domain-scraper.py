@@ -1,6 +1,7 @@
 import base64
 import struct
 import time
+import hashlib
 import requests
 
 from cryptography import x509
@@ -11,13 +12,12 @@ from cryptography.x509.oid import ExtensionOID, NameOID
 LOG_LIST_URL = "https://www.gstatic.com/ct/log_list/v3/log_list.json"
 
 BATCH_SIZE = 200
-TOTAL = 5000   # 每个 log 扫多少条（避免爆量）
-
+TOTAL = 5000   # 每个 log 扫多少 entries
 OUTPUT_FILE = "domains.txt"
 
 
 # ---------------------------
-# 获取所有 CT logs
+# 获取所有 CT logs（官方源）
 # ---------------------------
 def get_ct_logs():
     r = requests.get(LOG_LIST_URL, timeout=30)
@@ -29,7 +29,9 @@ def get_ct_logs():
 
     for operator in data["operators"]:
         for log in operator["logs"]:
-            if log.get("state", {}).get("usable", {}).get("state") == "usable":
+            state = log.get("state", {}).get("usable", {}).get("state")
+
+            if state == "usable":
                 logs.append({
                     "name": log["description"],
                     "url": log["url"]
@@ -63,19 +65,23 @@ def fetch_entries(log_url, start, end):
 
 
 # ---------------------------
-# CT parser
+# CT leaf parser
 # ---------------------------
 def extract_cert(leaf_input_b64):
-    data = base64.b64decode(leaf_input_b64)
-
     try:
+        data = base64.b64decode(leaf_input_b64)
+
         cert_len = struct.unpack(">I", b"\x00" + data[12:15])[0]
         cert = data[15:15 + cert_len]
+
         return cert
     except:
         return None
 
 
+# ---------------------------
+# domain extractor
+# ---------------------------
 def extract_domains(cert):
     domains = set()
 
@@ -91,7 +97,9 @@ def extract_domains(cert):
 
         # SAN
         try:
-            san = c.extensions.get_extension_for_oid(ExtensionOID.SUBJECT_ALTERNATIVE_NAME)
+            san = c.extensions.get_extension_for_oid(
+                ExtensionOID.SUBJECT_ALTERNATIVE_NAME
+            )
             for d in san.value.get_values_for_type(x509.DNSName):
                 domains.add(d)
         except:
@@ -108,13 +116,15 @@ def extract_domains(cert):
 # ---------------------------
 def main():
 
-    print("[+] loading CT log list...")
+    print("[+] loading CT logs from official source...")
 
     logs = get_ct_logs()
 
     print(f"[+] usable logs: {len(logs)}")
 
-    seen = set()
+    seen_certs = set()
+    seen_domains = set()
+
     written = 0
 
     with open(OUTPUT_FILE, "a", encoding="utf-8") as f:
@@ -147,25 +157,40 @@ def main():
                     if not cert:
                         continue
 
+                    # -------------------------
+                    # ⭐ cert 级去重（关键）
+                    # -------------------------
+                    cert_hash = hashlib.sha256(cert).hexdigest()
+
+                    if cert_hash in seen_certs:
+                        continue
+
+                    seen_certs.add(cert_hash)
+
                     domains = extract_domains(cert)
 
                     for d in domains:
                         d = d.lower().strip()
 
-                        if not d or d in seen:
+                        if not d:
                             continue
 
-                        seen.add(d)
+                        # domain 去重
+                        if d in seen_domains:
+                            continue
+
+                        seen_domains.add(d)
 
                         f.write(d + "\n")
                         written += 1
 
                 f.flush()
 
-            print(f"[+] current total domains: {written}")
+            print(f"[+] current unique domains: {written}")
 
     print("\n[+] DONE")
-    print(f"[+] unique domains: {written}")
+    print(f"[+] certs seen: {len(seen_certs)}")
+    print(f"[+] domains: {written}")
     print(f"[+] saved to {OUTPUT_FILE}")
 
 
