@@ -1,0 +1,3 @@
+^.*flowers-to-the-world\.com\r?\n?
+^.*\.(sslip\.io|nip\.io|traefik\.me|localhost)$
+^.*\.(sslip\.io|nip\.io|traefik\.me|flowers-to-the-world.com|localhost)$
