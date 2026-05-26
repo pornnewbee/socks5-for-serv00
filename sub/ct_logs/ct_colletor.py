@@ -16,7 +16,8 @@ CT_LOG_LIST_URL = "https://www.gstatic.com/ct/log_list/v3/log_list.json"
 
 BATCH_SIZE = 512
 MAX_ENTRIES_PER_LOG = 10000
-
+HTTP_RETRIES = 10      # 普通错误重试次数
+RATE_RETRIES = 10      # 429重试次数
 CONCURRENCY_LOGS = 5
 CONCURRENCY_FETCH = 10
 
@@ -39,7 +40,11 @@ seen = set()
 normal_file = open("normal_domains.txt", "w", encoding="utf-8")
 wildcard_file = open("wildcard_domains.txt", "w", encoding="utf-8")
 failed_file = open("failed_entries.log", "w", encoding="utf-8")
-
+failed_batches_file = open(
+    "failed_batches.log",
+    "w",
+    encoding="utf-8"
+)
 
 # ================= UTILS =================
 
@@ -186,83 +191,176 @@ def parse_entry(entry: dict):
 
 # ================= HTTP =================
 
-async def fetch_json(session, url, retries=5):
-    for i in range(retries):
+async def fetch_json(session, url):
+
+    http_retry = 0
+    rate_retry = 0
+
+    while True:
         try:
             async with session.get(url, timeout=30) as r:
 
-                # 成功
                 if r.status == 200:
                     return await r.json()
 
-                # 429: 线性退避
                 if r.status == 429:
-                    wait_time = (i + 1) * 2
+
+                    rate_retry += 1
+
+                    if rate_retry > RATE_RETRIES:
+
+                        failed_batches_file.write(
+                            f"JSON,{url},429\n"
+                        )
+
+                        print(f"[FAILED 429] {url}")
+                        return None
+
+                    wait_time = rate_retry * 2
 
                     print(
                         f"[429] {url} "
-                        f"-> retry in {wait_time}s"
+                        f"retry {rate_retry}/{RATE_RETRIES} "
+                        f"in {wait_time}s"
                     )
 
                     await asyncio.sleep(wait_time)
                     continue
 
-                # 其它 HTTP 错误
+                http_retry += 1
+
+                if http_retry > HTTP_RETRIES:
+
+                    failed_batches_file.write(
+                        f"JSON,{url},HTTP-{r.status}\n"
+                    )
+
+                    print(f"[FAILED HTTP] {url}")
+                    return None
+
                 print(
                     f"[HTTP {r.status}] {url} "
-                    f"-> retry {i+1}/{retries}"
+                    f"retry {http_retry}/{HTTP_RETRIES}"
                 )
 
                 await asyncio.sleep(1)
 
         except Exception as e:
+
+            http_retry += 1
+
+            if http_retry > HTTP_RETRIES:
+
+                failed_batches_file.write(
+                    f"JSON,{url},EXCEPTION\n"
+                )
+
+                print(f"[FAILED EXCEPTION] {url}")
+                return None
+
             print(
                 f"[EXCEPTION] {url} "
-                f"-> {e} -> retry {i+1}/{retries}"
+                f"-> {e} "
+                f"retry {http_retry}/{HTTP_RETRIES}"
             )
 
             await asyncio.sleep(1)
 
-    print(f"[FAILED] {url}")
-    return None
 
+async def fetch_entries(session, log_url, start, end):
 
-async def fetch_entries(session, log_url, start, end, retries=5):
-    url = f"{log_url}/ct/v1/get-entries?start={start}&end={end}"
+    url = (
+        f"{log_url}/ct/v1/get-entries"
+        f"?start={start}&end={end}"
+    )
 
-    for i in range(retries):
+    http_retry = 0
+    rate_retry = 0
+
+    while True:
         try:
             async with session.get(url, timeout=60) as r:
 
                 if r.status == 200:
+
                     data = await r.json()
                     return data.get("entries", [])
 
-                # 429: 线性退避
                 if r.status == 429:
-                    wait_time = (i + 1) * 2
-                    print(f"[429] entries {start}-{end} -> retry in {wait_time}s")
+
+                    rate_retry += 1
+
+                    if rate_retry > RATE_RETRIES:
+
+                        failed_batches_file.write(
+                            f"{log_url},{start},{end},429\n"
+                        )
+
+                        print(
+                            f"[FAILED 429] "
+                            f"{start}-{end}"
+                        )
+
+                        return []
+
+                    wait_time = rate_retry * 2
+
+                    print(
+                        f"[429] entries {start}-{end} "
+                        f"retry {rate_retry}/{RATE_RETRIES} "
+                        f"in {wait_time}s"
+                    )
+
                     await asyncio.sleep(wait_time)
                     continue
 
-                # 其它错误
+                http_retry += 1
+
+                if http_retry > HTTP_RETRIES:
+
+                    failed_batches_file.write(
+                        f"{log_url},{start},{end},HTTP-{r.status}\n"
+                    )
+
+                    print(
+                        f"[FAILED HTTP] "
+                        f"{start}-{end}"
+                    )
+
+                    return []
+
                 print(
-                    f"[HTTP {r.status}] entries {start}-{end} "
-                    f"-> retry {i+1}/{retries}"
+                    f"[HTTP {r.status}] "
+                    f"entries {start}-{end} "
+                    f"retry {http_retry}/{HTTP_RETRIES}"
                 )
 
                 await asyncio.sleep(1)
 
         except Exception as e:
+
+            http_retry += 1
+
+            if http_retry > HTTP_RETRIES:
+
+                failed_batches_file.write(
+                    f"{log_url},{start},{end},EXCEPTION\n"
+                )
+
+                print(
+                    f"[FAILED EXCEPTION] "
+                    f"{start}-{end}"
+                )
+
+                return []
+
             print(
                 f"[EXCEPTION] entries {start}-{end} "
-                f"-> {e} -> retry {i+1}/{retries}"
+                f"-> {e} "
+                f"retry {http_retry}/{HTTP_RETRIES}"
             )
 
             await asyncio.sleep(1)
-
-    print(f"[FAILED] entries {start}-{end}")
-    return []
 
 
 # ================= LOG WORKER =================
@@ -339,6 +437,7 @@ async def main():
     normal_file.close()
     wildcard_file.close()
     failed_file.close()
+    failed_batches_file.close()
 
     duration = time.time() - start_time
 
