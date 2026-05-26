@@ -1,3 +1,6 @@
 ^.*flowers-to-the-world\.com\r?\n?
 ^.*\.(sslip\.io|nip\.io|traefik\.me|localhost)$
 ^.*\.(sslip\.io|nip\.io|traefik\.me|flowers-to-the-world\.com|localhost)\r?\n?
+
+my
+^.*\.(sslip\.io|flowers-to-the-world\.com|aws\.dev|localhost)\r?\n?
