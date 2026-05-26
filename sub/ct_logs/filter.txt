@@ -3,4 +3,4 @@
 ^.*\.(sslip\.io|nip\.io|traefik\.me|flowers-to-the-world\.com|localhost)\r?\n?
 
 my
-^.*\.(sslip\.io|flowers-to-the-world\.com|aws\.dev|a2z\.eu|letsencrypt\.org|localhost)\r?\n?
+^.*\.(sslip\.io|flowers-to-the-world\.com|aws\.dev|a2z\.eu|letsencrypt\.org|\.vpn\.azure\.com|localhost)\r?\n?
