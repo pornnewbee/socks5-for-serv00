@@ -454,7 +454,7 @@ async def main():
     print("  normal_domains.txt")
     print("  wildcard_domains.txt")
     print("  failed_entries.log")
-
+    print("  failed_batches.log")
 
 if __name__ == "__main__":
     asyncio.run(main())
