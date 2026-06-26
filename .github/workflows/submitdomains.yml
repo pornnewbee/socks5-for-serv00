@@ -32,6 +32,7 @@ jobs:
     # 注意：如果你的脚本在运行后会生成输出文件（例如 output.log 或 result.csv），它通常会出现在当前工作目录下或脚本同级目录下
     - name: Run Python script
       run: |
+        pip install aiohttp idna cryptography
         python sub/ct_logs/ct_colletor.py
 
     # 5. 将脚本的输出文件上传到 Artifact
