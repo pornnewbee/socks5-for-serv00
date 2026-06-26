@@ -1,8 +1,6 @@
 name: ctlog domains submmit
 
 on:
-  push:
-    branches: [ "main" ]
   workflow_dispatch:
 
 jobs:
