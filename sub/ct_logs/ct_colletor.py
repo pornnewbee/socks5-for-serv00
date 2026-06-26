@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# -*- coding:  utf-8 -*- 
+# -*- coding: utf-8 -*- 
 
 import asyncio
 import aiohttp
@@ -7,6 +7,7 @@ import base64
 import idna
 import ssl
 import time
+from collections import Counter  # 新增：用于内存计数
 from cryptography import x509
 from cryptography.hazmat.backends import default_backend
 from cryptography.x509.oid import NameOID, ExtensionOID
@@ -21,6 +22,11 @@ RATE_RETRIES = 10      # 429重试次数
 CONCURRENCY_LOGS = 5
 CONCURRENCY_FETCH = 10
 
+# ================= NOISE FILTER CONFIG =================
+NOISE_THRESHOLD = 250        # 阈值设置为 250
+level1_counter = Counter()    # 用于统计一级域名出现次数
+muted_suffixes = set()       # 用于记录已经打印过警告的噪音域名，防止控制台刷屏
+
 
 # ================= STATS =================
 
@@ -29,7 +35,8 @@ stats = {
     "entries": 0,
     "certs": 0,
     "failed": 0,
-    "domains": 0
+    "domains": 0,
+    "noise_dropped": 0       # 新增：统计因噪音丢弃的域名数
 }
 
 
@@ -38,12 +45,12 @@ stats = {
 seen = set()
 
 normal_file = open("normal_domains.txt", "w", encoding="utf-8")
-wildcard_file = open("wildcard_domains.txt", "w", encoding="utf-8")
+# 删除了 wildcard_file，因为泛域名直接丢弃
 failed_file = open("failed_entries.log", "w", encoding="utf-8")
 failed_batches_file = open(
     "failed_batches.log",
     "w",
-    encoding="utf-8"
+    "utf-8"
 )
 
 # ================= UTILS =================
@@ -70,28 +77,14 @@ def sort_domain_file(path):
         for d in domains:
             f.write(d + "\n")
 
-def normalize_domain(d: str) -> str:
-    d = d.strip().lower()
-
-    if not d or "." not in d:
-        return ""
-
-    if d.replace(".", "").isdigit():
-        return ""
-
-    blacklist = (".local", ".localhost", ".internal")
-    if any(d.endswith(x) for x in blacklist):
-        return ""
-
-    if d.startswith("*."):
-        d = d[2:]
-
-    try:
-        d = idna.decode(d)
-    except:
-        pass
-
-    return d
+def get_registered_domain(domain: str) -> str:
+    """简易获取一级注册域名 (例如 sub.example.com -> example.com)"""
+    parts = domain.split(".")
+    if len(parts) >= 2:
+        # 取最后两段，如 example.com (应对大多数常规域名)
+        # 注意：此处未引入 tldextract，如遇到 .com.cn 等复合后缀可根据需要换成 tldextract
+        return ".".join(parts[-2:])
+    return domain
 
 
 def save(domain: str):
@@ -103,25 +96,35 @@ def save(domain: str):
     if raw.replace(".", "").isdigit():
         return
 
-    is_wildcard = raw.startswith("*.")
-
-    clean = raw[2:] if is_wildcard else raw
+    # ---------------- 环节 1: 泛域名不要 ----------------
+    if raw.startswith("*."):
+        return  # 显式丢弃泛域名，不再保存
 
     try:
-        clean = idna.decode(clean)
+        clean = idna.decode(raw)
     except:
-        pass
+        clean = raw
 
     if clean in seen:
         return
 
+    # ---------------- 环节 2: 噪音频次过滤 ----------------
+    reg_domain = get_registered_domain(clean)
+    
+    # 累加该一级域名的计数
+    level1_counter[reg_domain] += 1
+
+    if level1_counter[reg_domain] > NOISE_THRESHOLD:
+        stats["noise_dropped"] += 1
+        if reg_domain not in muted_suffixes:
+            muted_suffixes.add(reg_domain)
+            print(f"[!] 发现高频噪音源，已拦截后续子域: *.{reg_domain} (超过 {NOISE_THRESHOLD} 次)")
+        return  # 超过阈值，直接拦截，不投入后续环节
+
+    # ---------------- 环节 3: 正常留存 ----------------
     seen.add(clean)
     stats["domains"] += 1
-
-    if is_wildcard:
-        wildcard_file.write(clean + "\n")
-    else:
-        normal_file.write(clean + "\n")
+    normal_file.write(clean + "\n")
 
 
 # ================= CERT PARSER =================
@@ -424,8 +427,6 @@ async def process_log(session, sem, log):
             for d in extract_domains(cert):
                 save(d)
 
-    print(f"    entries: {stats['entries']}")
-
 
 # ================= MAIN =================
 
@@ -445,7 +446,7 @@ async def main():
 
         print(f"[+] logs: {len(logs)}")
 
-        sem = asyncio.Semaphore(CONCURRENCY_LOGS)
+        sem = asyncio.semaphore(CONCURRENCY_LOGS)
 
         await asyncio.gather(*[
             process_log(session, sem, log)
@@ -453,14 +454,11 @@ async def main():
         ])
 
     normal_file.close()
-    wildcard_file.close()
     failed_file.close()
     failed_batches_file.close()
     
     print("[+] sorting domains...")
-    
     sort_domain_file("normal_domains.txt")
-    sort_domain_file("wildcard_domains.txt")
 
     duration = time.time() - start_time
 
@@ -469,13 +467,13 @@ async def main():
     print(f"Entries scanned    : {stats['entries']}")
     print(f"Certificates       : {stats['certs']}")
     print(f"Failed parses      : {stats['failed']}")
-    print(f"Unique domains     : {stats['domains']}")
+    print(f"Noise hits dropped : {stats['noise_dropped']}") # 打印因高频被剔除的数量
+    print(f"Unique normal domains: {stats['domains']}")
     print(f"Runtime            : {duration:.2f}s")
     print("=============================\n")
 
     print("[+] output:")
     print("  normal_domains.txt")
-    print("  wildcard_domains.txt")
     print("  failed_entries.log")
     print("  failed_batches.log")
 
