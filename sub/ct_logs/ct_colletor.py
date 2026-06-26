@@ -50,7 +50,7 @@ failed_file = open("failed_entries.log", "w", encoding="utf-8")
 failed_batches_file = open(
     "failed_batches.log",
     "w",
-    "utf-8"
+    encoding="utf-8"  # 加上 encoding= 即可解决
 )
 
 # ================= UTILS =================
