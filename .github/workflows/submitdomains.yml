@@ -22,18 +22,18 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install aiohttp idna cryptography
+        mkdir -p dnsx_install
+        cd dnsx_install
+        curl -L https://github.com/projectdiscovery/dnsx/releases/download/v1.2.1/dnsx_1.2.1_linux_amd64.zip -o dnsx.zip
+        unzip -o dnsx.zip
+        chmod +x dnsx
+        sudo mv dnsx /usr/local/bin/
+        cd ..
+        rm -rf dnsx_install   # 可选清理
 
     - name: Run Python script
       run: python sub/ct_logs/ct_colletor.py
 
-    # ===== 新增 dnsx 步骤 =====
-    - name: Install dnsx
-      run: |
-        # 下载 dnsx 二进制（以最新版本为例，实际可根据需要固定版本）
-        curl -L https://github.com/projectdiscovery/dnsx/releases/download/v1.2.1/dnsx_1.2.1_linux_amd64.zip -o dnsx.zip
-        unzip dnsx.zip
-        chmod +x dnsx
-        sudo mv dnsx /usr/local/bin/
 
     - name: Run dnsx on normal_domains.txt
       run: |
