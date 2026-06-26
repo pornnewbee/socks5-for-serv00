@@ -446,7 +446,7 @@ async def main():
 
         print(f"[+] logs: {len(logs)}")
 
-        sem = asyncio.semaphore(CONCURRENCY_LOGS)
+        sem = asyncio.Semaphore(CONCURRENCY_LOGS)
 
         await asyncio.gather(*[
             process_log(session, sem, log)
