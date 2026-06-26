@@ -1,6 +1,5 @@
 name: ctlog domains submmit
 
-# 触发条件：你可以根据需要修改。这里配置为推送到 main 分支时触发，以及允许手动触发(workflow_dispatch)
 on:
   push:
     branches: [ "main" ]
@@ -11,42 +10,46 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    # 1. 检出仓库代码
     - name: Checkout repository
       uses: actions/checkout@v4
 
-    # 2. 设置 Python 环境（这里以 Python 3.10 为例）
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
         python-version: '3.10'
-        # cache: 'pip' # 如果你有 requirements.txt，可以开启缓存加速
 
-    # 3. 安装依赖（如果你的脚本需要第三方库，请取消下面的注释并确保仓库根目录有 requirements.txt）
-    # - name: Install dependencies
-    #   run: |
-    #     python -m pip install --upgrade pip
-    #     if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-
-    # 4. 执行指定路径下的 Python 脚本
-    # 注意：如果你的脚本在运行后会生成输出文件（例如 output.log 或 result.csv），它通常会出现在当前工作目录下或脚本同级目录下
-    - name: Run Python script
+    - name: Install Python dependencies
       run: |
-        pwd
-        sudo ls -lh
-        sudo ls ../
+        python -m pip install --upgrade pip
         pip install aiohttp idna cryptography
-        python sub/ct_logs/ct_colletor.py
 
-    # 5. 将脚本的输出文件上传到 Artifact
-    # 请将 'path' 修改为你脚本实际生成的文件或文件夹路径（支持通配符，如 sub/ct_logs/outputs/*）
+    - name: Run Python script
+      run: python sub/ct_logs/ct_colletor.py
+
+    # ===== 新增 dnsx 步骤 =====
+    - name: Install dnsx
+      run: |
+        # 下载 dnsx 二进制（以最新版本为例，实际可根据需要固定版本）
+        curl -L https://github.com/projectdiscovery/dnsx/releases/download/v1.2.1/dnsx_1.2.1_linux_amd64.zip -o dnsx.zip
+        unzip dnsx.zip
+        chmod +x dnsx
+        sudo mv dnsx /usr/local/bin/
+
+    - name: Run dnsx on normal_domains.txt
+      run: |
+        # 对 normal_domains.txt 进行 A 记录探测，输出到 dnsx_output.txt
+        dnsx -l normal_domains.txt -a -o dnsx_output.txt
+        # 如果你希望保留原始的域名 → IP 映射，可省略 -resp-only 并添加 -a
+        # 例如: dnsx -l normal_domains.txt -a -silent -o dnsx_output.txt
+        echo "dnsx finished, output lines: $(wc -l < dnsx_output.txt)"
+
+    # ===== 上传 Artifact，增加 dnsx 输出文件 =====
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: script-output-files  # 下载时显示的 Artifact 名称
+        name: script-output-files
         path: |
           normal_domains.txt
           failed_entries.log
           failed_batches.log
-        # 注：上面 path 的写法只是示例，请根据你脚本实际输出的文件名和路径进行替换。
-        # 如果你想把整个 sub/ct_logs/ 目录都传上去，可以直接写 path: sub/ct_logs/
+          dnsx_output.txt          # 新增
