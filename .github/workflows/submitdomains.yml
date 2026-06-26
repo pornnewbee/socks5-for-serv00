@@ -22,7 +22,7 @@ jobs:
         pip install aiohttp idna cryptography
         mkdir -p dnsx_install
         cd dnsx_install
-        curl -L https://github.com/projectdiscovery/dnsx/releases/download/v1.2.1/dnsx_1.2.1_linux_amd64.zip -o dnsx.zip
+        curl -L https://github.com/projectdiscovery/dnsx/releases/download/v1.2.3/dnsx_1.2.3_linux_amd64.zip -o dnsx.zip
         unzip -o dnsx.zip
         chmod +x dnsx
         sudo mv dnsx /usr/local/bin/
