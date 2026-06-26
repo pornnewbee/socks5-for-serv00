@@ -37,6 +37,9 @@ jobs:
       run: |
         # 对 normal_domains.txt 进行 A 记录探测，输出到 dnsx_output.txt
         dnsx -l normal_domains.txt -a -o dnsx_output.txt
+        pwd
+        ls
+        ls /
         # 如果你希望保留原始的域名 → IP 映射，可省略 -resp-only 并添加 -a
         # 例如: dnsx -l normal_domains.txt -a -silent -o dnsx_output.txt
         echo "dnsx finished, output lines: $(wc -l < dnsx_output.txt)"
