@@ -45,8 +45,8 @@ jobs:
       with:
         name: script-output-files  # 下载时显示的 Artifact 名称
         path: |
-          sub/ct_logs/*.log
-          sub/ct_logs/*.csv
-          output.txt
+          normal_domains.txt
+          failed_entries.log
+          failed_batches.log
         # 注：上面 path 的写法只是示例，请根据你脚本实际输出的文件名和路径进行替换。
         # 如果你想把整个 sub/ct_logs/ 目录都传上去，可以直接写 path: sub/ct_logs/
