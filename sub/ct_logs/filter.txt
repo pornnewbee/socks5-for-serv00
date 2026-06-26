@@ -1,6 +1,0 @@
-^.*flowers-to-the-world\.com\r?\n?
-^.*\.(sslip\.io|nip\.io|traefik\.me|localhost)$
-^.*\.(sslip\.io|nip\.io|traefik\.me|flowers-to-the-world\.com|amdv\.dyingbirds\.com|localhost)\r?\n?
-
-my
-^.*\.(sslip\.io|flowers-to-the-world\.com|aws\.dev|a2z\.eu|letsencrypt\.org|vpn\.azure\.com|amazonaws\.com|microsoft-int\.com|localhost)\r?\n?
