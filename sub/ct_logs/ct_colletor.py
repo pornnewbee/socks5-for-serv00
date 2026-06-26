@@ -15,7 +15,7 @@ from cryptography.x509.oid import NameOID, ExtensionOID
 CT_LOG_LIST_URL = "https://www.gstatic.com/ct/log_list/v3/log_list.json"
 
 BATCH_SIZE = 512
-MAX_ENTRIES_PER_LOG = 10000
+MAX_ENTRIES_PER_LOG = 1000
 HTTP_RETRIES = 10      # 普通错误重试次数
 RATE_RETRIES = 10      # 429重试次数
 CONCURRENCY_LOGS = 5
@@ -51,6 +51,24 @@ failed_batches_file = open(
 def b64d(data: str) -> bytes:
     return base64.b64decode(data + "===")
 
+def sort_domain_file(path):
+
+    with open(path, "r", encoding="utf-8") as f:
+        domains = [
+            line.strip()
+            for line in f
+            if line.strip()
+        ]
+
+    domains.sort(
+        key=lambda d: tuple(
+            reversed(d.lower().split("."))
+        )
+    )
+
+    with open(path, "w", encoding="utf-8") as f:
+        for d in domains:
+            f.write(d + "\n")
 
 def normalize_domain(d: str) -> str:
     d = d.strip().lower()
@@ -438,6 +456,11 @@ async def main():
     wildcard_file.close()
     failed_file.close()
     failed_batches_file.close()
+    
+    print("[+] sorting domains...")
+    
+    sort_domain_file("normal_domains.txt")
+    sort_domain_file("wildcard_domains.txt")
 
     duration = time.time() - start_time
 
