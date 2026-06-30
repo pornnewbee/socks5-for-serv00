@@ -29,6 +29,7 @@ jobs:
         cd ..
         rm -rf dnsx_install   # 可选清理
         mkdir httpx_install
+        cd httpx_install
         curl -L https://github.com/projectdiscovery/httpx/releases/download/v1.9.0/httpx_1.9.0_linux_amd64.zip -o httpx.zip
         unzip -o httpx.zip
         sudo mv httpx /usr/local/bin/
