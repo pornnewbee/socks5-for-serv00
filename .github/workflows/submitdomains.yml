@@ -33,7 +33,7 @@ jobs:
         unzip -o httpx.zip
         sudo mv httpx /usr/local/bin/
         cd ..
-        rm -rf dnsx_install
+        rm -rf httpx_install
         
 
     - name: Run Python script
