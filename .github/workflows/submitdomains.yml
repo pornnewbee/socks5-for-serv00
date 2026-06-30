@@ -28,6 +28,13 @@ jobs:
         sudo mv dnsx /usr/local/bin/
         cd ..
         rm -rf dnsx_install   # 可选清理
+        mkdir httpx_install
+        curl -L https://github.com/projectdiscovery/httpx/releases/download/v1.9.0/httpx_1.9.0_linux_amd64.zip -o httpx.zip
+        unzip -o httpx.zip
+        sudo mv httpx /usr/local/bin/
+        cd ..
+        rm -rf dnsx_install
+        
 
     - name: Run Python script
       run: python sub/ct_logs/ct_colletor.py
@@ -37,12 +44,9 @@ jobs:
       run: |
         # 对 normal_domains.txt 进行 A 记录探测，输出到 dnsx_output.txt
         dnsx -l normal_domains.txt -a -o dnsx_output.txt
-        pwd
-        ls
-        ls /
+        dnsx -l normal_domains.txt -a | httpx -timeout 5 -retries 3 -o http_alive.txt
         # 如果你希望保留原始的域名 → IP 映射，可省略 -resp-only 并添加 -a
         # 例如: dnsx -l normal_domains.txt -a -silent -o dnsx_output.txt
-        echo "dnsx finished, output lines: $(wc -l < dnsx_output.txt)"
 
     # ===== 上传 Artifact，增加 dnsx 输出文件 =====
     - name: Upload Artifact
