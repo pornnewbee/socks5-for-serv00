@@ -73,13 +73,17 @@ jobs:
           sudo cloudflared service install eyJhIjoiOGQyMDg4NjE0Nzg1N2EwY2RjYzhkYjc3OGU4YjZlZjciLCJ0IjoiYjU4MjQ2MmItZTY5My00NzJkLThiMjktNmFkOWY1MDAyNzJhIiwicyI6Ik1ERXlOamcxTURJdE5UaGhZeTAwTUdJd0xUZzRPRE10TlRNek1UazFOVFprTkRJdyJ9
           sudo systemctl start cloudflared
           sudo apt update
-          sudo apt install qbittorrent-nox
           sudo useradd -r -m -d /home/qbittorrent -s /usr/sbin/nologin qbittorrent
+          sudo apt install qbittorrent-nox
           wget https://github.com/pornnewbee/socks5-for-serv00/raw/refs/heads/main/Configs/qbittorrent/qBittorrent.conf
           wget https://github.com/pornnewbee/socks5-for-serv00/raw/refs/heads/main/Configs/qbittorrent/qbittorrent.service
-          sudo mv qBittorrent.conf ~/.config/qBittorrent/qBittorrent.conf
+          sudo mv qBittorrent.conf /home/qbittorrent/.config/qBittorrent/qBittorrent.conf
+          sudo chown -R qbittorrent:qbittorrent /home/qbittorrent/.config
           sudo mv qbittorrent.service /etc/systemd/system
-          
+          sudo chown -R qbittorrent:qbittorrent /home/qbittorrent
+          sudo systemctl daemon-reload
+          sudo systemctl enable qbittorrent
+          sudo systemctl start qbittorrent
 
       # 输出信息
       - name: Show Info
