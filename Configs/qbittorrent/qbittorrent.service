@@ -1,0 +1,21 @@
+[Unit]
+Description=qBittorrent-nox Service
+After=network.target
+
+[Service]
+User=qbittorrent
+Group=qbittorrent
+
+ExecStart=/usr/bin/qbittorrent-nox --webui-port=8080
+
+Restart=on-failure
+RestartSec=5
+
+# 防止权限问题
+UMask=007
+
+# 提升文件描述符限制（PT/PT下载建议）
+LimitNOFILE=100000
+
+[Install]
+WantedBy=multi-user.target
