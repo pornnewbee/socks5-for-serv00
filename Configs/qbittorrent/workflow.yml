@@ -74,7 +74,7 @@ jobs:
           sudo systemctl start cloudflared
           sudo apt update
           sudo useradd -r -m -d /home/qbittorrent -s /usr/sbin/nologin qbittorrent
-          sudo apt install qbittorrent-nox
+          sudo apt install -y qbittorrent-nox
           wget https://github.com/pornnewbee/socks5-for-serv00/raw/refs/heads/main/Configs/qbittorrent/qBittorrent.conf
           wget https://github.com/pornnewbee/socks5-for-serv00/raw/refs/heads/main/Configs/qbittorrent/qbittorrent.service
           sudo mkdir -p /home/qbittorrent/.config/qBittorrent
