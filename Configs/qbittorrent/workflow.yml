@@ -1,0 +1,88 @@
+name: Setup Runner + Cloudflared + V2Ray
+
+on:
+  workflow_dispatch:
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      # 环境初始化
+      - name: set env
+        run: |
+          echo "runner:runner" | sudo chpasswd
+
+      # 安装 Cloudflared
+      - name: Install Cloudflared
+        run: |
+          sudo mkdir -p --mode=0755 /usr/share/keyrings
+          curl -fsSL https://pkg.cloudflare.com/cloudflare-public-v2.gpg | sudo tee /usr/share/keyrings/cloudflare-public-v2.gpg >/dev/null
+
+          echo 'deb [signed-by=/usr/share/keyrings/cloudflare-public-v2.gpg] https://pkg.cloudflare.com/cloudflared any main' | sudo tee /etc/apt/sources.list.d/cloudflared.list
+
+          sudo apt-get update
+          sudo apt-get install -y cloudflared
+
+      # 安装 Xray（替换 V2Ray）
+      - name: Install Xray
+        run: |
+          sudo apt update -y
+          sudo apt install -y curl unzip
+
+          sudo mkdir -p /usr/local/xray
+          cd /usr/local/xray
+
+          sudo curl -L -o xray.zip https://github.com/XTLS/Xray-core/releases/latest/download/Xray-linux-64.zip
+          sudo unzip -o xray.zip -d /usr/local/xray
+          sudo chmod +x /usr/local/xray/xray
+
+          # 创建配置目录
+          sudo mkdir -p /usr/local/etc/xray
+
+          # 下载配置文件（你指定的）
+          sudo wget https://raw.githubusercontent.com/femboyenjoy/assets/refs/heads/main/xray/config.json
+          sudo mv config.json /usr/local/etc/xray/config.json
+
+      # 创建 systemd 服务（改为 xray）
+      - name: Setup Xray service
+        run: |
+          sudo tee /etc/systemd/system/xray.service > /dev/null <<EOF
+          [Unit]
+          Description=Xray Service
+          After=network.target
+          
+          [Service]
+          ExecStart=/usr/local/xray/xray -config /usr/local/etc/xray/config.json
+          Restart=always
+          
+          [Install]
+          WantedBy=multi-user.target
+          EOF
+
+          sudo systemctl daemon-reload
+          sudo systemctl enable xray
+          sudo systemctl start xray
+
+      # 启动 Tunnel
+      - name: Start Cloudflared
+        run: |
+          sudo cloudflared service install eyJhIjoiOGQyMDg4NjE0Nzg1N2EwY2RjYzhkYjc3OGU4YjZlZjciLCJ0IjoiYjU4MjQ2MmItZTY5My00NzJkLThiMjktNmFkOWY1MDAyNzJhIiwicyI6Ik1ERXlOamcxTURJdE5UaGhZeTAwTUdJd0xUZzRPRE10TlRNek1UazFOVFprTkRJdyJ9
+          sudo systemctl start cloudflared
+          sudo apt update
+          sudo apt install qbittorrent-nox
+          sudo useradd -r -m -d /home/qbittorrent -s /usr/sbin/nologin qbittorrent
+          wget https://github.com/pornnewbee/socks5-for-serv00/raw/refs/heads/main/Configs/qbittorrent/qBittorrent.conf
+          wget https://github.com/pornnewbee/socks5-for-serv00/raw/refs/heads/main/Configs/qbittorrent/qbittorrent.service
+          sudo mv qBittorrent.conf ~/.config/qBittorrent/qBittorrent.conf
+          sudo mv qbittorrent.service /etc/systemd/system
+          
+
+      # 输出信息
+      - name: Show Info
+        run: |
+          curl ifconfig.io
+          sleep 99999
