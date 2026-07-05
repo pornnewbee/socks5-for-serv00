@@ -1,0 +1,14 @@
+[Unit]
+Description=Qbittorrent Downloads Permanent Cache Share Service
+After=network.target
+
+[Service]
+Type=simple
+# 如果需要，可以把 root 改为 qbittorrent 用户以确保安全，但要确认该用户对运行脚本有权限
+User=root
+ExecStart=/usr/bin/python3 /home/qbittorrent/share_server.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
