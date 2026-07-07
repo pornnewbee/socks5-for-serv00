@@ -8,7 +8,7 @@ Type=simple
 User=runner
 WorkingDirectory=/home/runner
 
-ExecStart=/usr/bin/python3 /home/runner/shell_mcp.py
+ExecStart=/home/runner/mcp-venv/bin/python /home/runner/shell_mcp.py
 
 Restart=always
 RestartSec=5
