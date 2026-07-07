@@ -1,7 +1,11 @@
 from mcp.server.fastmcp import FastMCP
 import subprocess
 
-mcp = FastMCP("shell")
+mcp = FastMCP(
+    "shell",
+    host="0.0.0.0",
+    port=6942
+)
 
 
 @mcp.tool()
@@ -18,7 +22,5 @@ def run_command(command: str) -> str:
 
 if __name__ == "__main__":
     mcp.run(
-        transport="streamable-http",
-        host="0.0.0.0",
-        port=6942
+        transport="streamable-http"
     )
