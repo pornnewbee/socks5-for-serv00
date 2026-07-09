@@ -1,0 +1,10 @@
+Nickname:
+russianslayer
+
+Participant ID:
+kit-zwUj22q1HmppELLNmW17ug-MaCU
+
+API key (save now):
+kitk_demD0A_SL-X8kXY71NGWcpNC7lXR9YqrD2YVMJDB_3Q
+
+Paste this entire block into IT Army Kit → Settings → Kit credential.
