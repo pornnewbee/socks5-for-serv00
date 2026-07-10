@@ -330,14 +330,22 @@ if __name__ == "__main__":
     log.info(f"Starting MCP Shell server (dual transport) on {LISTEN_HOST}:{LISTEN_PORT}")
     print(f"MCP Shell server (dual transport) starting on {LISTEN_HOST}:{LISTEN_PORT}")
 
-    # 获取两种传输的 ASGI 应用
     sse_app = mcp.sse_app()
     stream_app = mcp.streamable_http_app()
 
-    # 组装到 Starlette 应用，SSE 挂载到 /sse，Streamable HTTP 挂载到 /mcp
-    app = Starlette(routes=[
-        Mount("/sse", app=sse_app),
-        Mount("/mcp", app=stream_app),
-    ])
+    async def app(scope, receive, send):
+        if scope["type"] == "http":
+            path = scope.get("path", "/")
+            # SSE 及其配套消息端点
+            if path.startswith("/sse") or path.startswith("/messages"):
+                await sse_app(scope, receive, send)
+            # Streamable HTTP 端点
+            elif path.startswith("/mcp"):
+                await stream_app(scope, receive, send)
+            else:
+                # 对于未知路径返回 404
+                from starlette.responses import Response
+                response = Response("Not Found", status_code=404)
+                await response(scope, receive, send)
 
     uvicorn.run(app, host=LISTEN_HOST, port=LISTEN_PORT)
