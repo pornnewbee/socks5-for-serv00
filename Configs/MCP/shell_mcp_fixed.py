@@ -11,7 +11,7 @@ from starlette.applications import Starlette
 from starlette.routing import Route, Mount
 
 LISTEN_HOST = "127.0.0.1"
-LISTEN_PORT = 6943
+LISTEN_PORT = 6942
 DEFAULT_TIMEOUT = 30
 OUTPUT_MAX_BYTES = 1024 * 1024
 SESSION_IDLE_TIMEOUT = 1800
