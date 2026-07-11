@@ -17,7 +17,7 @@ LISTEN_PORT = 6942
 DEFAULT_TIMEOUT = 30
 OUTPUT_MAX_BYTES = 1024 * 1024
 SESSION_IDLE_TIMEOUT = 1800
-LOG_FILE = "/tmp/mcp_shell_v2.log"
+LOG_FILE = "/tmp/mcp_shell.log"
 
 logging.basicConfig(
     filename=LOG_FILE,
