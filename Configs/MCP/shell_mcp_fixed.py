@@ -1,10 +1,12 @@
 """
 MCP Shell Server (FIXED) - with PTY session support & structured output.
 Now supports both SSE (Cline) and Streamable HTTP (Cursor etc.) on the same port.
+
+v2: shlex.split(), session lock fixes, EOF cleanup
 """
 
 from mcp.server.fastmcp import FastMCP
-import asyncio, pty, os, fcntl, time, logging, signal, json, uuid
+import asyncio, pty, os, fcntl, time, logging, signal, json, uuid, shlex
 from typing import Optional
 import uvicorn
 from starlette.applications import Starlette
@@ -15,14 +17,14 @@ LISTEN_PORT = 6942
 DEFAULT_TIMEOUT = 30
 OUTPUT_MAX_BYTES = 1024 * 1024
 SESSION_IDLE_TIMEOUT = 1800
-LOG_FILE = "/tmp/mcp_shell_fixed.log"
+LOG_FILE = "/tmp/mcp_shell_v2.log"
 
 logging.basicConfig(
     filename=LOG_FILE,
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
 )
-log = logging.getLogger("mcp_shell_fixed")
+log = logging.getLogger("mcp_shell_v2")
 
 mcp = FastMCP("shell")
 
@@ -151,7 +153,9 @@ async def _reader_loop(session):
         except (BlockingIOError, OSError):
             return
         if not data:
+            # EOF: actively close the session to prevent zombie processes
             session.closed = True
+            asyncio.ensure_future(_cleanup_session_async(session))
             return
         async def _consume():
             async with _session_lock:
@@ -176,20 +180,59 @@ async def _reader_loop(session):
         except Exception:
             pass
 
+async def _cleanup_session_async(session):
+    """Clean up a session that has reached EOF."""
+    try:
+        if session.child_pid:
+            try:
+                pgid = os.getpgid(session.child_pid)
+                os.killpg(pgid, signal.SIGKILL)
+            except Exception:
+                try:
+                    os.kill(session.child_pid, signal.SIGKILL)
+                except Exception:
+                    pass
+            try:
+                os.waitpid(session.child_pid, os.WNOHANG)
+            except ChildProcessError:
+                pass
+        if session.master_fd is not None:
+            try:
+                os.close(session.master_fd)
+            except Exception:
+                pass
+        session.master_fd = None
+        session.child_pid = None
+    except Exception as e:
+        log.error(f"[_cleanup_session_async] {session.session_id}: {e}")
+
 def _cleanup_stale_sessions():
     now = time.time()
     stale_ids = []
-    for sid, s in sessions.items():
-        if not s.is_alive() or (now - s.last_active > SESSION_IDLE_TIMEOUT):
-            stale_ids.append(sid)
-    for sid in stale_ids:
+    # Lock the entire iteration to prevent race conditions
+    async def _do_cleanup():
+        nonlocal stale_ids
+        async with _session_lock:
+            for sid, s in list(sessions.items()):
+                if not s.is_alive() or (now - s.last_active > SESSION_IDLE_TIMEOUT):
+                    stale_ids.append(sid)
+            for sid in stale_ids:
+                try:
+                    s = sessions.pop(sid, None)
+                    if s:
+                        log.info(f"[cleanup] closing stale session {sid}")
+                        s.close()
+                except Exception:
+                    pass
+    try:
+        asyncio.get_event_loop().run_until_complete(_do_cleanup())
+    except RuntimeError:
+        # If no event loop is running, create a new one
+        loop = asyncio.new_event_loop()
         try:
-            s = sessions.pop(sid, None)
-            if s:
-                log.info(f"[cleanup] closing stale session {sid}")
-                s.close()
-        except Exception:
-            pass
+            loop.run_until_complete(_do_cleanup())
+        finally:
+            loop.close()
 
 @mcp.tool()
 async def start_session(command="/bin/bash", session_id=None):
@@ -214,7 +257,8 @@ async def start_session(command="/bin/bash", session_id=None):
                 import struct
                 packed = struct.pack("HHHH", 80, 24, 0, 0)
                 fcntl.ioctl(0, 0x5410, packed)
-                os.execvp(command.split()[0], command.split())
+                parts = shlex.split(command)
+                os.execvp(parts[0], parts)
             os.close(slave_fd)
             session.master_fd = master_fd
             session.child_pid = child_pid
@@ -247,11 +291,13 @@ async def send_input(session_id, text):
 
 @mcp.tool()
 async def read_output(session_id, timeout=2.0):
-    session = sessions.get(session_id)
-    if not session:
-        return json.dumps({"error": f"Session '{session_id}' not found"})
-    if session.closed and not session.output_buffer:
-        return json.dumps({"output": "", "has_more": False, "is_alive": False})
+    # Get session inside the lock to prevent race conditions
+    async with _session_lock:
+        session = sessions.get(session_id)
+        if not session:
+            return json.dumps({"error": f"Session '{session_id}' not found"})
+        if session.closed and not session.output_buffer:
+            return json.dumps({"output": "", "has_more": False, "is_alive": False})
     deadline = time.time() + timeout
     while time.time() < deadline:
         if session.output_buffer:
@@ -271,11 +317,12 @@ async def read_output(session_id, timeout=2.0):
 async def list_sessions():
     _cleanup_stale_sessions()
     active = []
-    for sid, s in list(sessions.items()):
-        alive = s.is_alive()
-        if alive:
-            idle_secs = int(time.time() - s.last_active)
-            active.append({"session_id": sid, "command": s.command, "idle_seconds": idle_secs})
+    async with _session_lock:
+        for sid, s in list(sessions.items()):
+            alive = s.is_alive()
+            if alive:
+                idle_secs = int(time.time() - s.last_active)
+                active.append({"session_id": sid, "command": s.command, "idle_seconds": idle_secs})
     return json.dumps({"sessions": active, "count": len(active)})
 
 @mcp.tool()
@@ -312,7 +359,8 @@ async def start_background(command):
                 import struct
                 packed = struct.pack("HHHH", 80, 24, 0, 0)
                 fcntl.ioctl(0, 0x5410, packed)
-                os.execvp(command.split()[0], command.split())
+                parts = shlex.split(command)
+                os.execvp(parts[0], parts)
             os.close(slave_fd)
             session.master_fd = master_fd
             session.child_pid = child_pid
@@ -325,10 +373,10 @@ async def start_background(command):
             log.error(f"[start_background] error: {e}")
             return json.dumps({"error": str(e)})
 
-# ====================== 启动双传输服务器 ======================
+# ====================== Start Dual Transport Server ======================
 if __name__ == "__main__":
-    log.info(f"Starting MCP Shell server (dual transport) on {LISTEN_HOST}:{LISTEN_PORT}")
-    print(f"MCP Shell server (dual transport) starting on {LISTEN_HOST}:{LISTEN_PORT}")
+    log.info(f"Starting MCP Shell server v2 (dual transport) on {LISTEN_HOST}:{LISTEN_PORT}")
+    print(f"MCP Shell server v2 (dual transport) starting on {LISTEN_HOST}:{LISTEN_PORT}")
 
     sse_app = mcp.sse_app()
     stream_app = mcp.streamable_http_app()
@@ -336,14 +384,11 @@ if __name__ == "__main__":
     async def app(scope, receive, send):
         if scope["type"] == "http":
             path = scope.get("path", "/")
-            # SSE 及其配套消息端点
             if path.startswith("/sse") or path.startswith("/messages"):
                 await sse_app(scope, receive, send)
-            # Streamable HTTP 端点
             elif path.startswith("/mcp"):
                 await stream_app(scope, receive, send)
             else:
-                # 对于未知路径返回 404
                 from starlette.responses import Response
                 response = Response("Not Found", status_code=404)
                 await response(scope, receive, send)
