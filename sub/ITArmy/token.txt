@@ -1,10 +1,6 @@
-Nickname:
-russianslayer
+sudo /opt/itarmykit/current/kit-headless-supervisor identity set-participant-id 'kit-zwUj22q1HmppELLNmW17ug-MaCU'
+sudo /opt/itarmykit/current/kit-headless-supervisor identity set-api-key 'kitk_demD0A_SL-X8kXY71NGWcpNC7lXR9YqrD2YVMJDB_3Q'
+sudo /opt/itarmykit/current/kit-headless-supervisor identity stats
 
-Participant ID:
-kit-zwUj22q1HmppELLNmW17ug-MaCU
 
-API key (save now):
-kitk_demD0A_SL-X8kXY71NGWcpNC7lXR9YqrD2YVMJDB_3Q
-
-Paste this entire block into IT Army Kit → Settings → Kit credential.
+sudo /opt/itarmykit/current/kit-headless-supervisor settings set cpuLimitPercent 90 && sudo /opt/itarmykit/current/kit-headless-supervisor settings set bandwidthLimitMbps 999
