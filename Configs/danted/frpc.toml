@@ -1,7 +1,10 @@
+serverAddr = "213.35.122.16"
+serverPort = 7000
+
 [[proxies]]
-name="runner-A"
-type="tcp"
-remotePort=10801
+name = "socks-client-A"
+type = "tcp"
+remotePort = 10801
 
 [proxies.plugin]
-type="socks5"
+type = "socks5"
