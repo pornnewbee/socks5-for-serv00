@@ -1,0 +1,850 @@
+# GitHub Runner Proxy Pool Scheduler
+## Project Requirements Document
+
+Version: 1.0
+
+---
+
+# 1. Project Overview
+
+## 1.1 Objective
+
+Develop a dynamic proxy pool management system based on:
+
+- Oracle VPS
+- frps
+- GitHub Actions Runner
+- frpc SOCKS5 plugin
+
+The system uses GitHub Actions Hosted Runner as temporary proxy exit nodes.
+
+Each Runner establishes a reverse connection to Oracle VPS through frpc.
+
+Oracle VPS provides centralized proxy management:
+
+- Allocate proxy slots
+- Manage remote ports
+- Create and trigger GitHub workflows
+- Monitor workflow lifecycle
+- Monitor proxy availability
+- Recycle proxy resources
+
+---
+
+# 2. System Architecture
+
+                     Client
+
+                       |
+
+                       |
+
+          Proxy Scheduler (Oracle VPS)
+
+                       |
+
+      +----------------+----------------+
+
+      |                                 |
+
+   SQLite                         GitHub API
+
+      |                                 |
+
+      |                                 |
+
+    frps                         Workflow Manager
+
+      |
+
+      |
+
++------+-------+-------+
+
+| | |
+
+10801 10802 10803
+
+| | |
+
+Runner A Runner B Runner C
+
+|
+
+frpc
+
+SOCKS5 Plugin
+
+
+
+---
+
+# 3. Core Design Principles
+
+
+## 3.1 Fixed Proxy Slot Model
+
+The system uses fixed proxy slots.
+
+A proxy slot represents:
+
+One workflow file
+=
+One fixed remotePort
+=
+One proxy resource
+Example:
+proxy-slot-10801.yml
+
+binds to:
+
+remotePort = 10801
+
+
+The workflow file is created once and reused.
+
+The system does NOT create a new workflow file every time a proxy is requested.
+
+
+---
+
+## 3.2 Workflow and Port Binding
+
+
+Each workflow has a permanent port mapping.
+
+
+Example:
+proxy-slot-10801.yml
+|
+|
++---- remotePort=10801
+
+proxy-slot-10802.yml
+|
+|
++---- remotePort=10802
+
+
+
+This mapping never changes.
+
+
+---
+
+# 4. Technology Stack
+
+
+## Oracle VPS
+
+Required components:
+
+- frps
+- Python 3
+- FastAPI
+- SQLite
+
+
+Recommended libraries:
+
+- FastAPI
+- SQLAlchemy
+- httpx
+- PyGithub or GitHub REST API client
+
+
+---
+
+## Database
+
+SQLite.
+
+
+---
+
+## GitHub Integration
+
+Use GitHub REST API.
+
+
+Required permissions:
+
+Fine-grained PAT:
+Contents:
+Read and write
+
+Actions:
+Read and write
+
+
+Required operations:
+
+- Create workflow files
+- Update workflow files
+- Trigger workflow_dispatch
+- Query workflow runs
+- Cancel workflow runs
+
+
+---
+
+# 5. Proxy Slot Management
+
+
+## 5.1 Proxy Slot Concept
+
+
+A proxy slot is a permanent resource.
+
+
+Example:
+
+proxy-slot-10801
+
+Port:
+10801
+
+Workflow:
+proxy-slot-10801.yml
+
+Status:
+free
+
+
+
+---
+
+## 5.2 Slot Allocation
+
+
+When creating a proxy:
+
+
+Process:
+
+Request proxy
+
+    |
+
+Acquire scheduler lock
+
+    |
+
+Find free proxy slot
+
+    |
+
+Change status:
+
+free -> pending
+
+    |
+
+Trigger workflow
+
+    |
+
+Monitor startup
+
+
+
+---
+
+# 6. Database Design
+
+
+## 6.1 proxy_slots Table
+
+
+Stores fixed proxy resources.
+
+
+Fields:
+
+
+| Field | Type | Description |
+|---|---|---|
+| id | Integer | Primary key |
+| name | Text | Slot name |
+| port | Integer | frp remotePort |
+| workflow_file | Text | Workflow filename |
+| status | Text | Current status |
+| current_run_id | Text | Current GitHub workflow run |
+
+
+Example:
+
+
+
+id:
+1
+
+name:
+proxy-slot-10801
+
+port:
+10801
+
+status:
+running
+
+
+
+---
+
+## 6.2 workflow_runs Table
+
+
+Stores workflow execution history.
+
+
+Fields:
+
+
+| Field | Type | Description |
+|---|---|---|
+| id | Integer | Primary key |
+| slot_id | Integer | Related proxy slot |
+| github_run_id | Text | GitHub run ID |
+| status | Text | Run status |
+| created_time | Text | Start time |
+| finished_time | Text | End time |
+
+
+---
+
+## 6.3 Proxy Information Table
+
+
+Stores proxy health information.
+
+
+Fields:
+
+
+| Field | Type |
+|---|---|
+| slot_id | Integer |
+| exit_ip | Text |
+| country | Text |
+| isp | Text |
+| latency | Integer |
+| last_check | Text |
+
+
+---
+
+# 7. Proxy State Machine
+
+
+Proxy slot states:
+
+
+             create
+
+                |
+
+                v
+
+             pending
+
+          /           \
+
+         /             \
+
+        v               v
+
+   running           failed
+
+        |
+
+        |
+
+        v
+
+    stopping
+
+        |
+
+        |
+
+        v
+
+       free
+
+
+---
+
+# 8. State Definitions
+
+
+## free
+
+
+Meaning:
+
+- Slot available
+- No active workflow
+- Port can be reused
+
+
+---
+
+## pending
+
+
+Meaning:
+
+Workflow has been triggered.
+
+GitHub status:
+
+
+queued
+
+
+
+The Runner has not connected yet.
+
+
+---
+
+## running
+
+
+Conditions:
+
+ALL must be true:
+
+
+1. GitHub workflow:
+
+
+in_progress
+
+
+
+2. frps connection exists
+
+
+3. SOCKS5 health check succeeds
+
+
+---
+
+## failed
+
+
+Possible reasons:
+
+
+- Workflow failed
+- Runner startup failed
+- frpc failed
+- Timeout
+- GitHub unavailable
+
+
+---
+
+## stopping
+
+
+Proxy is being recycled.
+
+
+Process:
+
+
+
+Cancel workflow
+
+    |
+
+Wait Runner exit
+
+    |
+
+Check frp disconnect
+
+    |
+
+Release slot
+
+
+
+---
+
+# 9. Workflow Design
+
+
+## 9.1 Workflow Naming
+
+
+Format:
+
+
+
+proxy-slot-{port}.yml
+
+
+
+Example:
+
+
+
+proxy-slot-10801.yml
+
+
+
+---
+
+## 9.2 Workflow Behavior
+
+
+Each workflow:
+
+
+1. Install frpc
+2. Generate frpc configuration
+3. Start frpc
+4. Keep process alive
+
+
+Example:
+
+
+
+Install frpc
+
+    |
+
+Create frpc.toml
+
+    |
+
+Start frpc
+
+    |
+
+sleep 99999
+
+
+
+---
+
+# 10. frpc Configuration
+
+
+Example:
+
+
+```toml
+serverAddr = "ORACLE_IP"
+
+serverPort = 7000
+
+
+[[proxies]]
+
+name = "proxy-slot-10801"
+
+type = "tcp"
+
+remotePort = 10801
+
+
+[proxies.plugin]
+
+type = "socks5"
+
+Important:
+
+remotePort is fixed
+Each workflow owns one port
+Multiple workflows cannot share one port
+11. Proxy Creation Workflow
+
+API:
+
+POST /proxy/create
+
+Steps:
+
+Step 1
+
+Acquire scheduler lock.
+
+Purpose:
+
+Prevent multiple requests allocating the same slot.
+
+Step 2
+
+Find available slot:
+
+Example:
+
+proxy-slot-10801
+
+status=free
+Step 3
+
+Update database:
+
+free
+
+↓
+
+pending
+Step 4
+
+Trigger GitHub workflow:
+
+Use:
+
+workflow_dispatch
+Step 5
+
+Save:
+
+github_run_id
+Step 6
+
+Wait for monitor.
+
+12. Workflow Monitoring
+
+A background monitor runs periodically.
+
+Recommended interval:
+
+30 seconds
+12.1 GitHub Status Check
+
+Query:
+
+GET /repos/{owner}/{repo}/actions/runs
+
+Monitor:
+
+queued
+
+in_progress
+
+completed
+12.2 State Synchronization
+pending
+
+If:
+
+GitHub status = queued
+
+Keep:
+
+pending
+running
+
+If:
+
+GitHub status = in_progress
+
+AND
+
+SOCKS5 test successful
+
+Change:
+
+pending -> running
+failed
+
+If:
+
+GitHub status = completed
+
+AND
+
+conclusion=failure
+
+Change:
+
+pending -> failed
+13. SOCKS5 Health Check
+
+The scheduler must periodically test every running proxy.
+
+Example:
+
+curl --socks5 127.0.0.1:{port} https://ip-api.example
+
+Collect:
+
+Exit IP
+Country
+ISP
+Latency
+14. Proxy Removal
+
+API:
+
+DELETE /proxy/{id}
+
+Steps:
+
+Get current workflow run ID
+Call GitHub cancel API
+Change state:
+running
+
+↓
+
+stopping
+Wait for:
+Workflow stopped
+frp connection closed
+Release:
+stopping
+
+↓
+
+free
+15. Failure Recovery
+Pending Timeout
+
+Condition:
+
+pending > 15 minutes
+
+Action:
+
+Cancel workflow
+
+Set failed
+
+Release slot
+Running Failure
+
+Conditions:
+
+Workflow disappeared
+frp disconnected
+SOCKS5 unavailable
+
+Action:
+
+running
+
+↓
+
+failed
+
+↓
+
+free
+16. API Specification
+Create Proxy
+POST /proxy/create
+
+Response:
+
+{
+    "id":"proxy-slot-10801",
+    "port":10801,
+    "status":"pending"
+}
+List Proxy
+GET /proxy/list
+
+Response:
+
+[
+ {
+  "id":"proxy-slot-10801",
+  "port":10801,
+  "status":"running",
+  "ip":"x.x.x.x"
+ }
+]
+Delete Proxy
+DELETE /proxy/{id}
+17. Project Structure
+proxy-manager/
+
+├── main.py
+
+├── api/
+
+│   └── proxy.py
+
+
+├── scheduler/
+
+│   ├── allocator.py
+│   ├── monitor.py
+│   └── cleanup.py
+
+
+├── github/
+
+│   └── github_client.py
+
+
+├── database/
+
+│   ├── models.py
+│   └── database.py
+
+
+├── templates/
+
+│   └── workflow.yml
+
+
+├── config.yaml
+
+└── proxy.db
+
+18. Development Restrictions
+
+The implementation MUST NOT:
+
+Create unlimited workflow files dynamically
+Allow multiple active runs using the same port
+Allocate ports without locking
+Depend on manual port management
+Delete workflow files during normal recycling
+19. Development Phases
+Phase 1
+
+Implement:
+
+SQLite database
+Proxy slot management
+Manual workflow startup
+Phase 2
+
+Implement:
+
+GitHub API integration
+Workflow trigger
+Run monitoring
+Phase 3
+
+Implement:
+
+Automatic health check
+Automatic recovery
+Proxy lifecycle management
+20. Acceptance Criteria
+
+The system must:
+
+Support multiple simultaneous proxy nodes
+Guarantee no remotePort conflicts
+Reuse proxy slots
+Monitor GitHub workflow status
+Detect pending/running/failed states
+Automatically recover failed nodes
+Allow proxy deletion
+Allow port reuse after cleanup
+Maintain persistent proxy state after restart
