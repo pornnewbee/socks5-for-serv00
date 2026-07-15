@@ -1,0 +1,31 @@
+name: Start frpc Runner
+
+on:
+  workflow_dispatch:
+
+jobs:
+  frpc:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Install frpc
+        run: |
+          wget -O frp.tar.gz https://github.com/fatedier/frp/releases/latest/download/frp_linux_amd64.tar.gz
+          tar -xzf frp.tar.gz
+          cd frp_*
+          sudo mv frpc /usr/local/bin/
+          sudo chmod +x /usr/local/bin/frpc
+
+      - name: Download frpc config
+        run: |
+          wget -O frpc.toml https://github.com/pornnewbee/socks5-for-serv00/raw/refs/heads/main/Configs/danted/frpc.toml
+
+      - name: Start frpc
+        run: |
+          nohup frpc -c frpc.toml > frpc.log 2>&1 &
+          sleep 5
+          cat frpc.log
+
+      - name: Keep runner alive
+        run: |
+          sleep 99999
