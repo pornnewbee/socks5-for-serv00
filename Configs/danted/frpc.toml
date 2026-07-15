@@ -1,0 +1,7 @@
+[[proxies]]
+name="runner-A"
+type="tcp"
+remotePort=10801
+
+[proxies.plugin]
+type="socks5"
