@@ -1,50 +1,67 @@
 GitHub Actions Ephemeral Proxy Pool Controller
 Project Requirements and Implementation Specification
 
-Version: 4.0
+Version: 5.0
 
-Status: Implementation Specification
+Target Implementation: Cline
+
+Architecture: Oracle VPS + GitHub Actions Hosted Runner + frps + frpc + Dynamic Proxy Session
 
 1. Project Overview
 
 本项目用于构建一个基于 GitHub Actions Hosted Runner 的动态临时代理池。
 
-系统由以下组件组成：
+系统利用 GitHub Actions Hosted Runner 作为临时代理出口节点。
 
-Oracle Cloud VPS
-Oracle Proxy Controller
-SQLite Database
-frps
-GitHub Actions
+Oracle VPS 作为中央控制面和代理池管理中心。
+
+系统主要组件：
+
+Oracle VPS
+├── Proxy Controller
+├── SQLite Database
+├── frps
+└── Proxy Health Checker
+
+GitHub
+└── GitHub Actions
+
 GitHub Actions Hosted Runner
-frpc
-Runner Bootstrap Agent
-SOCKS5 Proxy
+├── Runner Bootstrap Agent
+├── frpc
+└── SOCKS5 Proxy
 
-GitHub Actions Runner 作为临时代理出口节点。
+系统的核心目标：
 
-Oracle VPS 作为：
+Oracle 动态创建 GitHub Workflow。
+每个 Workflow Run 只包含一个 Job。
+每个 Job 使用一个 GitHub Hosted Runner。
+Runner 启动后主动向 Oracle 注册。
+Runner 自己获取公网出口 IP。
+Oracle 动态分配 Remote Port。
+Runner 动态生成 frpc.toml。
+Runner 通过 FRP 反向连接 Oracle。
+Oracle 通过 Remote Port 提供代理访问入口。
+Oracle 对 Proxy 执行端到端健康检查。
+Proxy 异常时自动终止对应 Workflow。
+Oracle 不直接控制 Runner 停止 frpc。
+Proxy 停止通过 GitHub API Cancel Workflow Run 实现。
+Workflow 结束后 Runner 和 frpc 自动退出。
+Oracle 确认 FRP Tunnel 断开后回收端口。
+需要新 IP 时创建新的 Workflow，而不是 Rotate 原有 Runner。
+2. Fundamental Architecture
 
-Proxy Controller
-Proxy Session 管理中心
-FRP Server
-Remote Port 动态分配中心
-Workflow / Run / Job / Runner 状态管理中心
-Proxy Pool 管理中心
-
-每个 GitHub Workflow 只允许包含一个 Job。
-
-因此系统采用严格的一对一关系：
+系统采用严格的一对一映射：
 
 1 Workflow Run
        │
        │ 1:1
        ▼
-1 GitHub Job
+1 Job
        │
        │ 1:1
        ▼
-1 GitHub Runner
+1 Runner
        │
        │ 1:1
        ▼
@@ -52,182 +69,21 @@ Proxy Pool 管理中心
        │
        │ 1:1
        ▼
-1 Oracle Remote Port
+1 Remote Port
+       │
+       │
+       ▼
+1 Proxy
 
 因此：
 
 1 Workflow Run = 1 Proxy
 
-Workflow 的生命周期就是 Proxy 的生命周期。
+这是本系统最重要的架构原则。
 
-2. Core Architecture
+3. Single-Job Workflow Requirement
 
-系统不再采用：
-
-Workflow
-    ↓
-固定 Oracle 本地端口
-    ↓
-固定 Runner
-
-也不采用：
-
-Oracle
-    ↓
-通知 Runner
-    ↓
-删除 frpc 配置
-
-最终采用：
-
-Oracle Controller
-        │
-        │ GitHub API
-        ▼
-创建 Workflow Run
-        │
-        ▼
-GitHub Job
-        │
-        ▼
-GitHub Hosted Runner
-        │
-        ▼
-Runner Bootstrap Agent
-        │
-        ├── 获取 run_id
-        ├── 获取 job_id
-        ├── 获取 runner_id
-        └── curl ipconfig.io
-                  │
-                  ▼
-             external_ip
-                  │
-                  ▼
-       POST /sessions/register
-                  │
-                  ▼
-        Oracle Controller
-                  │
-                  ├── 创建 Proxy Session
-                  ├── 分配 Remote Port
-                  └── 保存 external_ip
-                  │
-                  ▼
-        返回动态 FRP 配置
-                  │
-                  ▼
-        Runner 动态生成 frpc.toml
-                  │
-                  ▼
-                frpc
-                  │
-                  │ Reverse Tunnel
-                  ▼
-                frps
-                  │
-                  ▼
-         Oracle Remote Port
-                  │
-                  ▼
-           Runner SOCKS5
-                  │
-                  ▼
-              Internet
-
-当 Oracle 不再需要 Proxy：
-
-Oracle Controller
-        │
-        │ GitHub API
-        ▼
-Cancel Workflow Run
-        │
-        ▼
-GitHub Job Cancelled
-        │
-        ▼
-Runner 退出
-        │
-        ▼
-frpc 退出
-        │
-        ▼
-FRP Tunnel 断开
-        │
-        ▼
-Oracle 检测 Tunnel 已断开
-        │
-        ▼
-Session RELEASED
-        │
-        ▼
-Remote Port FREE
-
-Oracle 不直接通知 Runner 删除 frpc 配置。
-
-3. Fundamental Design Rules
-
-必须严格遵守以下设计：
-
-1. 一个 Workflow Run 只能包含一个 Job。
-
-2. 一个 Run 对应一个 Job。
-
-3. 一个 Job 对应一个 Runner。
-
-4. 一个 Runner 对应一个 Proxy Session。
-
-5. 一个 Proxy Session 对应一个 Oracle Remote Port。
-
-6. Workflow 文件不绑定任何固定 Oracle Remote Port。
-
-7. Workflow 文件不需要知道 Proxy Session ID。
-
-8. Workflow 文件不需要知道 Runner ID。
-
-9. Workflow 文件不需要知道 External IP。
-
-10. Runner 启动后主动获取自己的 job_id。
-
-11. Runner 直接 curl https://ipconfig.io 获取 external_ip。
-
-12. 获取 external_ip 时不经过 SOCKS5。
-
-13. Runner 主动向 Oracle Controller 注册。
-
-14. Runner → Oracle Controller 不需要认证。
-
-15. Oracle Controller 动态分配 Remote Port。
-
-16. Runner 根据 Oracle 返回的数据动态生成 frpc.toml。
-
-17. 所有 Proxy Workflow 可以使用相同 Workflow Template。
-
-18. 新 IP 不通过 Rotate 实现。
-
-19. 需要新 IP 时创建新的 Workflow Run。
-
-20. 停止 Proxy 时 Oracle 通过 GitHub API Cancel Workflow Run。
-
-21. Oracle 不通知 Runner 删除 frpc.toml。
-
-22. Runner 不需要主动调用 Release API。
-
-23. Workflow 结束后 Runner 自动退出。
-
-24. frpc 随 Runner 进程终止而退出。
-
-25. Oracle 等待 FRP Tunnel 断开后再释放 Remote Port。
-
-26. Runner 异常退出时 Oracle 通过 Heartbeat / Tunnel 状态自动清理。
-
-27. run_id 是 Proxy 生命周期的核心外部标识。
-
-28. session_id 是 Oracle 内部 Proxy Session 标识。
-4. Single-Job Workflow Requirement
-
-所有代理 Workflow 必须使用单 Job 结构。
+所有 Proxy Workflow 必须是单 Job Workflow。
 
 正确：
 
@@ -246,104 +102,227 @@ jobs:
 
 原因：
 
-如果 Workflow 包含多个 Job：
+多 Job Workflow：
 
 Workflow Run
-    │
-    ├── Job A → Runner A → Proxy A
-    │
-    ├── Job B → Runner B → Proxy B
-    │
-    └── Job C → Runner C → Proxy C
+├── Job A → Runner A → Proxy A
+├── Job B → Runner B → Proxy B
+└── Job C → Runner C → Proxy C
 
-取消 Workflow Run 会导致多个 Proxy 同时停止。
+取消 Workflow Run 会导致多个 Runner 同时停止。
 
-本项目要求：
+本项目必须保持：
 
-1 Workflow Run
-    │
-    └── 1 Proxy Job
-            │
-            └── 1 Runner
-                    │
-                    └── 1 Proxy
-5. Workflow Run as Proxy Lifecycle
+Workflow Run
+└── Job
+    └── Runner
+        └── Proxy
 
-Proxy 不再拥有独立于 Workflow 的生命周期。
+这样：
 
-定义：
+1 Run
+=
+1 Job
+=
+1 Runner
+=
+1 Proxy
+4. Proxy Lifecycle Equals Workflow Lifecycle
 
-Workflow Run Created
+Proxy 不拥有独立于 Workflow 的生命周期。
+
+生命周期关系：
+
+Workflow Created
     =
 Proxy Created
 
-Workflow Run Running
+Workflow Running
     =
-Proxy Running
+Proxy Starting / Running
 
-Workflow Run Cancelled
+Workflow Cancelled
     =
 Proxy Stopping
 
-Workflow Run Finished
+Workflow Completed
     =
 Proxy Stopped
 
-因此：
+因此 Oracle 不需要自己维护一个独立的 Runner 进程控制机制。
 
-run_id
+5. Core Network Architecture
 
-是整个 Proxy 生命周期最核心的标识。
+完整网络结构：
 
-例如：
+                    GitHub
+                      │
+                      │ Workflow API
+                      ▼
+              GitHub Workflow Run
+                      │
+                      ▼
+                     Job
+                      │
+                      ▼
+               Hosted Runner
+                      │
+                      │
+           ┌──────────┴──────────┐
+           │                     │
+           ▼                     ▼
+    Runner Bootstrap       curl ipconfig.io
+           │                     │
+           │                     ▼
+           │                external_ip
+           │                     │
+           └──────────┬──────────┘
+                      │
+                      │ Register
+                      ▼
+              Oracle Controller
+                      │
+                      ├── Create Session
+                      ├── Allocate Port
+                      └── Return FRP Config
+                      │
+                      ▼
+                 Runner frpc
+                      │
+                      │ Reverse Tunnel
+                      ▼
+                    frps
+                      │
+                      ▼
+              Oracle Remote Port
+                      │
+                      ▼
+                 SOCKS5 Proxy
+                      │
+                      ▼
+                  Internet
+6. Proxy Creation Flow
 
-run_id = 123456789
+Oracle 创建 Proxy：
 
-对应：
-
-Job ID
-Runner ID
-Session ID
-Remote Port
-External IP
-6. Workflow Creation
-
-Oracle Controller 可以通过 GitHub API 创建 Workflow Run。
-
-创建成功后 GitHub 返回：
-
-run_id
-
-例如：
-
-run_id = 123456789
-
-此时 Workflow 可能仍处于：
-
+Oracle
+  │
+  │ GitHub API
+  ▼
+Create Workflow Run
+  │
+  ▼
+GitHub returns run_id
+  │
+  ▼
+Oracle Database
+  │
+  ▼
 QUEUED
+  │
+  ▼
+GitHub Job Starts
+  │
+  ▼
+Runner Starts
+  │
+  ├── Get run_id
+  ├── Get job_id
+  ├── Get runner_id
+  └── curl ipconfig.io
+           │
+           ▼
+      external_ip
+           │
+           ▼
+   Register Oracle
+           │
+           ▼
+   Oracle Allocate Port
+           │
+           ▼
+   Return Session Config
+           │
+           ▼
+   Generate frpc.toml
+           │
+           ▼
+       Start frpc
+           │
+           ▼
+    FRP Tunnel Connected
+           │
+           ▼
+   Oracle Proxy Health Check
+           │
+           ▼
+         HEALTHY
+7. Proxy Destruction Flow
 
-Job 可能尚未开始执行。
+Oracle 停止 Proxy：
 
-数据库记录：
+Oracle
+  │
+  ▼
+Find Proxy Session
+  │
+  ▼
+Get run_id
+  │
+  ▼
+Session → STOPPING
+  │
+  │ GitHub API
+  ▼
+Cancel Workflow Run
+  │
+  ▼
+GitHub Job Cancelled
+  │
+  ▼
+Runner Terminates
+  │
+  ▼
+frpc Terminates
+  │
+  ▼
+FRP Tunnel Disconnects
+  │
+  ▼
+Oracle Detects Disconnect
+  │
+  ▼
+Session → RELEASED
+  │
+  ▼
+Remote Port → FREE
 
-run_id       = 123456789
-job_id       = NULL
-runner_id    = NULL
-session_id   = NULL
-status       = QUEUED
+Oracle 不执行：
 
-此时不能根据 Workflow Run 创建结果推断 Job ID。
+通知 Runner 删除 frpc.toml
 
-7. Run ID and Job ID
+Oracle 不执行：
 
-系统必须区分：
+通知 Runner 停止 frpc
+
+Oracle 不执行：
+
+通知 Runner 释放 Proxy
+
+Oracle 只需要：
+
+Cancel GitHub Workflow Run
+8. Run ID, Job ID and Session ID
+
+系统必须区分以下 ID：
 
 run_id
 job_id
 runner_id
 session_id
+remote_port
 
-含义：
+定义：
 
 run_id
     GitHub Workflow Run ID
@@ -352,10 +331,13 @@ job_id
     GitHub Actions Job ID
 
 runner_id
-    当前 Runner 实例 ID
+    Runner 实例标识
 
 session_id
-    Oracle Proxy Session ID
+    Oracle Proxy Session 唯一标识
+
+remote_port
+    Oracle FRP Remote Port
 
 关系：
 
@@ -369,8 +351,11 @@ runner_id
     │
     ▼
 session_id
+    │
+    ▼
+remote_port
 
-在单 Job 架构下：
+由于采用单 Job Workflow：
 
 1 run_id
     ↓
@@ -379,122 +364,135 @@ session_id
 1 runner_id
     ↓
 1 session_id
-8. Runner Must Report Job ID
+    ↓
+1 remote_port
+9. Run ID Acquisition
 
-Oracle Controller 不应该通过 GitHub API 获取 Job 列表，然后根据：
+Oracle 创建 Workflow 后可以立即获得：
 
-Job 顺序
-Job 创建时间
-Job 状态
-Runner 名称
+run_id
 
-来猜测某个 Runner 对应哪个 Job。
+但是此时不能立即获得可靠的：
 
-正确方式：
+job_id
+runner_id
+session_id
 
-Runner 启动
-    │
-    ▼
-Runner 获取自己的 Job ID
-    │
-    ▼
-主动向 Oracle 注册
-    │
-    ▼
-Oracle 绑定 run_id + job_id
+因为 Workflow 可能处于：
+
+queued
+
+状态。
+
+因此数据库初始状态：
+
+run_id       = 123456789
+job_id       = NULL
+runner_id    = NULL
+session_id   = NULL
+status       = QUEUED
+10. Runner Must Report Job ID
+
+Oracle 不应该根据 GitHub API 返回的 Job 列表猜测 Runner 对应关系。
+
+Runner 启动后必须主动注册：
+
+Runner
+  │
+  ├── run_id
+  ├── job_id
+  ├── runner_id
+  └── external_ip
+        │
+        ▼
+Oracle
 
 这样可以避免：
 
-同一个 Workflow
-启动多个 Run
-
-或
-
-GitHub API 查询存在延迟
-
-或
-
-多个 Job 同时进入队列
+多个 Workflow 同时运行
+GitHub API 查询延迟
+Job 创建时间相近
+Runner 启动顺序不确定
 
 导致错误绑定。
 
-9. Runner Startup
+11. Runner External IP
 
-Runner Job 开始后，Bootstrap Agent 执行：
+Runner 启动后必须自行获取公网出口 IP：
 
-1. 获取 run_id
-2. 获取 job_id
-3. 获取 runner_id
-4. 直接访问 ipconfig.io
-5. 获取 external_ip
-6. 向 Oracle 注册
-7. 获取 session_id
-8. 获取 remote_port
-9. 获取 FRP Server 配置
-10. 动态生成 frpc.toml
-11. 启动 frpc
-12. 等待 FRP Tunnel 建立
-13. 上报 READY
-14. 持续 Heartbeat
-15. 等待 Job 结束
-16. Runner 退出
-
-注意：
-
-Runner 不负责主动 Release Proxy。
-
-10. Runner External IP
-
-Runner 必须自行获取公网 IP。
-
-执行：
-
-EXTERNAL_IP=$(curl -4 -fsSL https://ipconfig.io)
+curl -4 -fsSL https://ipconfig.io
 
 例如：
 
 1.2.3.4
 
-Runner 保存：
-
-external_ip = 1.2.3.4
-
-然后上报 Oracle。
-
-11. External IP Must Not Use Proxy
-
-获取 External IP 时：
-
-Runner
-   │
-   │ curl https://ipconfig.io
-   ▼
-Internet
-   │
-   ▼
-Runner 当前公网出口 IP
-
-不得：
-
-Runner
-   │
-   ▼
-SOCKS5
-   │
-   ▼
-ipconfig.io
-
-即：
+Runner 将其作为：
 
 external_ip
 
-表示 Runner 直接访问 Internet 时的公网出口 IP。
+注册给 Oracle。
 
-Oracle 不需要自行查询。
+12. External IP Must Bypass Proxy
 
-12. Runner Registration
+获取 external_ip 时，Runner 必须直接访问：
 
-Runner 启动后向 Oracle：
+https://ipconfig.io
+
+不得经过：
+
+SOCKS5
+frpc
+代理环境变量
+
+必须确保：
+
+Runner
+  │
+  │ Direct HTTPS
+  ▼
+ipconfig.io
+
+而不是：
+
+Runner
+  │
+  ▼
+SOCKS5
+  │
+  ▼
+ipconfig.io
+
+这样 Oracle 得到的 external_ip 才是 Runner 原始出口 IP。
+
+13. Runner Control Plane Authentication
+
+Runner → Oracle Control Plane 不需要认证。
+
+以下接口不要求：
+
+API Key
+Bearer Token
+GitHub PAT
+Runner Token
+
+例如：
+
+POST /api/v1/sessions/register
+
+POST /api/v1/sessions/{session_id}/ready
+
+POST /api/v1/sessions/{session_id}/heartbeat
+
+但是 Oracle 必须验证：
+
+run_id 是否存在
+job_id 是否属于该 run
+run 是否有效
+run 是否已经有 Active Session
+job 是否已经有 Active Session
+14. Runner Registration
+
+接口：
 
 POST /api/v1/sessions/register
 
@@ -512,56 +510,35 @@ Oracle 执行：
 
 1. 验证 run_id
 2. 验证 job_id
-3. 检查 run_id 是否已经有 Active Session
-4. 检查 job_id 是否已经有 Active Session
+3. 验证 run / job 状态
+4. 防止重复注册
 5. 创建 Proxy Session
 6. 分配 Remote Port
 7. 保存 external_ip
 8. 返回 FRP 配置
-13. Runner Control Plane Authentication
 
-Runner → Oracle Controller：
+Response：
 
-不需要认证。
+{
+  "session_id": "sess-a8f32d",
+  "remote_port": 10003,
+  "frps_server": "oracle.example.com",
+  "frps_port": 7000
+}
+15. Duplicate Registration Protection
 
-以下接口无需 API Token：
-
-POST /api/v1/sessions/register
-
-POST /api/v1/sessions/{session_id}/ready
-
-POST /api/v1/sessions/{session_id}/heartbeat
-
-但是 Oracle 必须执行逻辑校验：
-
-run_id 是否存在
-job_id 是否属于该 run
-run 是否有效
-run 是否已经有 Active Session
-job 是否已经有 Active Session
-
-Runner 注册接口本身不使用：
-
-Bearer Token
-API Key
-GitHub PAT
-Runner Token
-14. Duplicate Registration Protection
-
-Oracle 必须防止重复注册。
-
-规则：
+必须保证：
 
 一个 run_id
-    最多一个 Active Proxy Session
+    最多一个 Active Session
 
 一个 job_id
-    最多一个 Active Proxy Session
+    最多一个 Active Session
 
 一个 runner_id
-    最多一个 Active Proxy Session
+    最多一个 Active Session
 
-例如：
+如果重复注册：
 
 run_id = 12345
 
@@ -570,19 +547,16 @@ run_id = 12345
 session_id = sess-001
 status = READY
 
-再次注册必须返回已有 Session 或拒绝重复注册。
-
-不得创建：
+则不得创建：
 
 sess-002
-15. Dynamic Remote Port Allocation
+16. Dynamic Port Allocation
 
-Oracle Controller 维护动态端口池：
+Oracle 维护动态端口池：
 
 10001
 10002
 10003
-10004
 ...
 10100
 
@@ -590,22 +564,20 @@ Runner 注册：
 
 Runner A
     ↓
-Oracle Controller
-    ↓
 Port 10001
 
-另一个 Runner：
+Runner B：
 
 Runner B
-    ↓
-Oracle Controller
     ↓
 Port 10002
 
 必须保证：
 
-同一时间一个 Remote Port 只能属于一个 Active Session
-16. Dynamic FRP Configuration
+同一时间
+一个 Remote Port
+只能属于一个 Active Session
+17. Dynamic FRP Configuration
 
 Oracle 返回：
 
@@ -634,56 +606,815 @@ localPort = 1080
 
 remotePort = 10003
 
-配置文件必须由 Runner 运行时生成。
-
 Workflow 文件不得硬编码：
 
 session_id
 remote_port
 external_ip
-17. Proxy Network
+runner_id
+job_id
+18. Runner Responsibilities
 
-最终网络：
+Runner 负责：
 
-External Client
-       │
-       │ SOCKS5
-       ▼
-Oracle VPS:10003
-       │
-       ▼
-frps
-       │
-       │ FRP Reverse Tunnel
-       ▼
-frpc
-       │
-       ▼
-Runner SOCKS5
-       │
-       ▼
-Internet
+1. 获取 run_id
+2. 获取 job_id
+3. 获取 runner_id
+4. 获取 external_ip
+5. 注册 Oracle
+6. 获取 session_id
+7. 获取 remote_port
+8. 生成 frpc.toml
+9. 启动 frpc
+10. 建立 FRP Tunnel
+11. 上报 READY
+12. 发送 Heartbeat
 
-代理地址：
+Runner 不负责：
 
-oracle.example.com:10003
-18. Database
+主动 Release Proxy
+释放 Remote Port
+通知 Oracle 停止 Proxy
+通知 Oracle 删除 Session
+19. No Runner Release API
+
+本系统不实现：
+
+POST /api/v1/sessions/{session_id}/release
+
+Proxy 的销毁通过：
+
+Cancel Workflow Run
+
+完成。
+
+Runner 随 Job 终止：
+
+Job Cancelled
+    ↓
+Runner Terminated
+    ↓
+frpc Terminated
+    ↓
+FRP Tunnel Disconnected
+
+Oracle 最终根据 Tunnel 状态回收端口。
+
+20. Proxy Session State Machine
+
+完整状态机：
+
+QUEUED
+   │
+   ▼
+WAITING_FOR_RUNNER
+   │
+   │ Job Started
+   ▼
+RUNNER_STARTED
+   │
+   │ Runner Register
+   ▼
+REGISTERED
+   │
+   ▼
+CONNECTING
+   │
+   │ FRP Connected
+   ▼
+READY
+   │
+   │ Proxy Health Check Passed
+   ▼
+HEALTHY
+   │
+   ▼
+RUNNING
+
+异常：
+
+WAITING_FOR_RUNNER
+    │
+    │ Timeout
+    ▼
+STARTUP_TIMEOUT
+RUNNER_STARTED
+    │
+    │ No Register
+    ▼
+REGISTRATION_TIMEOUT
+CONNECTING
+    │
+    │ No Tunnel
+    ▼
+TUNNEL_TIMEOUT
+RUNNING
+    │
+    │ Heartbeat Lost
+    ▼
+HEARTBEAT_TIMEOUT
+
+最终：
+
+FAILED
+    │
+    ▼
+CLEANUP
+    │
+    ▼
+RELEASED
+
+停止：
+
+HEALTHY / RUNNING
+    │
+    │ User Stop
+    ▼
+STOPPING
+    │
+    ▼
+RELEASED
+21. QUEUED State
+
+Oracle 创建 Workflow：
+
+run_id = 10001
 
 数据库：
 
-SQLite
+status = QUEUED
 
-路径：
+此时：
+
+job_id = NULL
+runner_id = NULL
+session_id = NULL
+remote_port = NULL
+
+Oracle 等待 GitHub Job 开始。
+
+22. WAITING_FOR_RUNNER
+
+GitHub Workflow 已创建，但 Runner 尚未开始执行。
+
+Oracle 定期查询 GitHub API。
+
+建议：
+
+Polling Interval = 5 秒
+
+检查：
+
+Workflow Run Status
+Job Status
+
+如果超过：
+
+RUNNER_START_TIMEOUT = 120 秒
+
+则：
+
+WAITING_FOR_RUNNER
+    ↓
+STARTUP_TIMEOUT
+    ↓
+Cancel Workflow
+    ↓
+FAILED
+23. Runner Never Comes Online
+
+典型场景：
+
+Oracle
+    ↓
+Create Workflow
+    ↓
+GitHub Run Created
+    ↓
+QUEUED
+    ↓
+等待 120 秒
+    ↓
+Runner 始终没有启动
+
+Oracle 自动：
+
+Cancel Workflow Run
+
+数据库：
+
+status = STARTUP_TIMEOUT
+
+随后：
+
+status = FAILED
+
+这样不会产生无限积累的僵尸 Workflow。
+
+24. RUNNER_STARTED
+
+Oracle 发现：
+
+Job Status = in_progress
+
+说明 GitHub 认为 Job 已经开始运行。
+
+此时：
+
+run_id = 10001
+job_id = 20001
+runner_id = NULL
+session_id = NULL
+
+进入：
+
+RUNNER_STARTED
+
+开始等待 Runner Bootstrap Agent 注册。
+
+25. Registration Timeout
+
+如果：
+
+Job = in_progress
+
+但是 Runner 在：
+
+60 秒
+
+内没有：
+
+POST /api/v1/sessions/register
+
+则：
+
+RUNNER_STARTED
+    ↓
+REGISTRATION_TIMEOUT
+    ↓
+Cancel Workflow
+    ↓
+FAILED
+
+可能原因：
+
+Runner 启动失败
+Bootstrap Script 失败
+Runner 无法访问 Oracle
+Bootstrap Agent 崩溃
+系统初始化失败
+26. REGISTERED
+
+Runner 成功注册：
+
+run_id
+job_id
+runner_id
+external_ip
+
+Oracle 创建：
+
+session_id
+remote_port
+
+状态：
+
+REGISTERED
+
+说明：
+
+Runner → Oracle
+
+Control Plane 通信正常。
+
+但 FRP Tunnel 还未确认。
+
+进入：
+
+CONNECTING
+27. CONNECTING
+
+Runner：
+
+1. 生成 frpc.toml
+2. 启动 frpc
+3. 连接 Oracle frps
+
+Oracle 等待：
+
+FRP Tunnel Established
+
+如果超过：
+
+TUNNEL_TIMEOUT = 60 秒
+
+则：
+
+CONNECTING
+    ↓
+TUNNEL_TIMEOUT
+    ↓
+Cancel Workflow
+    ↓
+Cleanup
+28. READY
+
+当 Oracle 检测到：
+
+FRP Tunnel Established
+
+并且 Runner 已发送：
+
+POST /api/v1/sessions/{session_id}/ready
+
+状态：
+
+READY
+
+此时只代表：
+
+FRP Tunnel 正常
+
+并不代表 Proxy 已经可以正常使用。
+
+29. End-to-End Proxy Health Check
+
+Oracle 必须对 Proxy 执行真正的端到端检查。
+
+检查路径：
+
+Oracle
+   │
+   │ SOCKS5
+   ▼
+Remote Port
+   │
+   ▼
+FRP Tunnel
+   │
+   ▼
+Runner SOCKS5
+   │
+   ▼
+Internet
+
+例如：
+
+curl \
+  --socks5-hostname 127.0.0.1:10001 \
+  https://ipconfig.io
+
+或者：
+
+curl \
+  --socks5-hostname 127.0.0.1:10001 \
+  https://api.ipify.org
+
+Oracle 获取：
+
+Observed IP
+
+然后比较：
+
+Observed IP
+    ==
+external_ip
+
+如果一致：
+
+Proxy HEALTHY
+30. Why End-to-End Health Check Is Required
+
+以下状态不能直接认为 Proxy 正常：
+
+Runner Registered
+
+因为这只能证明：
+
+Runner → Oracle
+
+正常。
+
+以下状态也不能直接认为 Proxy 正常：
+
+FRP Tunnel Connected
+
+因为这只能证明：
+
+frpc → frps
+
+正常。
+
+真正可用必须验证：
+
+Oracle Remote Port
+    ↓
+FRP
+    ↓
+Runner SOCKS5
+    ↓
+Internet
+
+因此：
+
+Workflow OK
++
+Runner OK
++
+Control Plane OK
++
+FRP OK
++
+SOCKS5 OK
++
+Internet OK
++
+Observed IP == external_ip
+=
+HEALTHY
+31. HEALTHY
+
+Proxy 满足：
+
+Workflow 正常
+Job 正常
+Runner 已注册
+Heartbeat 正常
+FRP Tunnel 正常
+SOCKS5 正常
+Internet 正常
+Observed IP == external_ip
+
+状态：
+
+HEALTHY
+
+此时 Oracle 才允许 Proxy 进入正式 Proxy Pool。
+
+32. RUNNING
+
+Proxy 正常运行期间持续执行：
+
+Heartbeat
+FRP Tunnel Check
+Proxy Health Check
+GitHub Run Check
+
+建议：
+
+Heartbeat Interval = 30 秒
+
+健康检查：
+
+Proxy Health Check Interval = 60 秒
+33. Heartbeat
+
+Runner：
+
+POST /api/v1/sessions/{session_id}/heartbeat
+
+Request：
+
+{
+  "status": "RUNNING"
+}
+
+Oracle 更新：
+
+last_heartbeat
+
+如果：
+
+120 秒
+
+没有 Heartbeat：
+
+RUNNING
+    ↓
+HEARTBEAT_TIMEOUT
+
+Oracle：
+
+1. 查询 GitHub Run 状态
+2. 查询 FRP Tunnel
+3. 如果仍然运行，则 Cancel Workflow
+4. 等待 Tunnel 断开
+5. Cleanup
+34. Proxy Health Check Failure
+
+如果 Proxy 健康检查失败：
+
+Oracle
+    ↓
+SOCKS5 Connection Failed
+    或
+Internet Request Failed
+    或
+Observed IP != external_ip
+
+不要立即停止 Workflow。
+
+建议连续失败：
+
+3 次
+
+才判定：
+
+UNHEALTHY
+
+状态：
+
+HEALTHY
+    ↓
+Health Check Failed
+    ↓
+Retry
+    ↓
+Health Check Failed
+    ↓
+Retry
+    ↓
+3 Consecutive Failures
+    ↓
+UNHEALTHY
+
+然后：
+
+Cancel Workflow
+35. Proxy Health States
+
+建议：
+
+STARTING
+REGISTERING
+CONNECTING
+READY
+HEALTHY
+DEGRADED
+UNHEALTHY
+STOPPING
+FAILED
+RELEASED
+
+含义：
+
+STARTING
+Workflow 正在启动
+
+REGISTERING
+等待 Runner 注册
+
+CONNECTING
+等待 FRP Tunnel
+
+READY
+Tunnel 已建立
+
+HEALTHY
+端到端代理测试通过
+
+DEGRADED
+部分健康检查失败
+
+UNHEALTHY
+Proxy 连续失败
+
+STOPPING
+Workflow 正在取消
+
+FAILED
+启动或运行失败
+
+RELEASED
+资源已彻底释放
+36. Recommended Timeouts
+timeouts:
+  workflow_start: 120
+
+  runner_registration: 60
+
+  frp_connection: 60
+
+  proxy_health_check: 30
+
+  heartbeat_interval: 30
+
+  heartbeat_timeout: 120
+
+  tunnel_cleanup: 30
+
+推荐：
+
+阶段	超时
+Workflow → Job	120 秒
+Job → Runner 注册	60 秒
+Runner 注册 → FRP	60 秒
+FRP → Proxy Health	30 秒
+Heartbeat	30 秒
+Heartbeat Timeout	120 秒
+Tunnel Cleanup	30 秒
+37. FRP Tunnel Disconnect
+
+当 Proxy 被取消：
+
+Cancel Workflow
+    ↓
+Runner Exit
+    ↓
+frpc Exit
+    ↓
+FRP Disconnect
+
+Oracle 必须确认 Tunnel 实际断开。
+
+不能：
+
+Cancel Workflow
+    ↓
+立即 Port → FREE
+
+因为 GitHub Cancel 不一定立即导致 Runner 进程终止。
+
+38. Port Release
+
+Remote Port 只有满足以下条件才能释放：
+
+1. Workflow 已结束
+2. Runner Heartbeat 已停止
+3. FRP Tunnel 已断开
+4. frps 不再持有该 Remote Port
+
+然后：
+
+Session → RELEASED
+Port → FREE
+39. FRP Port Release Delay
+
+Workflow Cancel 后，FRP 端口可能不会立即释放。
+
+允许：
+
+最大等待 30 秒
+
+检查：
+
+每 1 秒
+
+流程：
+
+Cancel Workflow
+    ↓
+Wait
+    ↓
+Check Tunnel
+    ↓
+Disconnected?
+    ├── Yes → Release Port
+    └── No  → Continue Waiting
+
+30 秒后仍未释放：
+
+CLEANUP_REQUIRED
+
+进入异常清理流程。
+
+40. Automatic Recovery
+
+如果 Runner 崩溃：
+
+Runner Crash
+    ↓
+Heartbeat Stop
+    ↓
+Oracle Detect Timeout
+    ↓
+Query GitHub Run
+    ↓
+Cancel Workflow
+    ↓
+Wait FRP Disconnect
+    ↓
+Release Port
+
+如果 Runner 注册失败：
+
+Registration Timeout
+    ↓
+Cancel Workflow
+    ↓
+Cleanup
+
+如果 FRP 连接失败：
+
+Tunnel Timeout
+    ↓
+Cancel Workflow
+    ↓
+Cleanup
+
+如果 Proxy 实际不可用：
+
+Health Check Failure
+    ↓
+3 Consecutive Failures
+    ↓
+Cancel Workflow
+    ↓
+Cleanup
+41. New IP / Rotation Model
+
+本系统不实现传统意义上的：
+
+Rotate Existing Runner
+
+因为：
+
+1 Workflow Run = 1 Proxy
+
+需要新 IP 时直接创建新 Workflow。
+
+例如：
+
+Proxy A
+external_ip = 1.1.1.1
+
+需要新 IP：
+
+Create Workflow B
+    ↓
+Runner B
+    ↓
+external_ip = 2.2.2.2
+    ↓
+Proxy B HEALTHY
+
+然后：
+
+Switch Traffic
+    ↓
+Cancel Workflow A
+
+因此：
+
+新建 Workflow
+=
+新 Runner
+=
+新公网 IP
+=
+新 Proxy
+42. Zero-Downtime Replacement
+
+旧 Proxy：
+
+Proxy A
+run_id = 10001
+port = 10001
+IP = 1.1.1.1
+HEALTHY
+
+创建新 Proxy：
+
+Proxy B
+run_id = 10002
+port = 10002
+IP = 2.2.2.2
+HEALTHY
+
+切换：
+
+Traffic
+   ↓
+Proxy B
+
+然后：
+
+Cancel run_id=10001
+
+最终：
+
+Proxy A → RELEASED
+Proxy B → HEALTHY
+
+可以实现零停机换 IP。
+
+43. Database Schema
+
+数据库：
 
 /opt/proxy-manager/proxy.db
 
-数据库至少包含：
+使用：
+
+SQLite
+
+建议表：
 
 workflow_runs
 runners
 proxy_sessions
 port_pool
-19. workflow_runs Table
+44. workflow_runs
 CREATE TABLE workflow_runs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
 
@@ -707,7 +1438,7 @@ RUNNING
 COMPLETED
 FAILED
 CANCELLED
-20. runners Table
+45. runners
 CREATE TABLE runners (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
 
@@ -725,20 +1456,9 @@ CREATE TABLE runners (
 
     created_at DATETIME NOT NULL,
 
-    updated_at DATETIME NOT NULL,
-
-    FOREIGN KEY (run_id)
-        REFERENCES workflow_runs(run_id)
+    updated_at DATETIME NOT NULL
 );
-
-Job 尚未开始：
-
-job_id = NULL
-
-Runner 注册后：
-
-job_id = 987654321
-21. proxy_sessions Table
+46. proxy_sessions
 CREATE TABLE proxy_sessions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
 
@@ -768,12 +1488,16 @@ CREATE TABLE proxy_sessions (
 
     tunnel_disconnected_at DATETIME,
 
-    released_at DATETIME,
-
-    FOREIGN KEY (run_id)
-        REFERENCES workflow_runs(run_id)
+    released_at DATETIME
 );
-22. port_pool Table
+
+建议额外增加：
+
+health_check_failures
+last_health_check
+last_health_check_ip
+last_health_check_error
+47. port_pool
 CREATE TABLE port_pool (
     port INTEGER PRIMARY KEY,
 
@@ -792,452 +1516,95 @@ FREE
 ALLOCATED
 ACTIVE
 RELEASING
-23. Proxy Session Lifecycle
+48. Health Check Fields
 
-正常生命周期：
+建议 proxy_sessions 增加：
 
-QUEUED
-    │
-    ▼
-REGISTERING
-    │
-    ▼
-ALLOCATED
-    │
-    ▼
-CONNECTING
-    │
-    ▼
-READY
-    │
-    ▼
-RUNNING
-    │
-    ▼
-STOPPING
-    │
-    ▼
-RELEASED
+health_status TEXT,
 
-异常：
+health_check_failures INTEGER DEFAULT 0,
 
-CONNECTING
-    │
-    ▼
-FAILED
+last_health_check DATETIME,
 
-或者：
+last_health_check_ip TEXT,
 
-RUNNING
-    │
-    ▼
-HEARTBEAT_TIMEOUT
-    │
-    ▼
-CLEANUP
-    │
-    ▼
-RELEASED
-24. API: Register
-POST /api/v1/sessions/register
-
-无需认证。
-
-Request：
-
-{
-  "run_id": "123456789",
-  "job_id": "987654321",
-  "runner_id": "runner-abc123",
-  "hostname": "runner-host",
-  "external_ip": "1.2.3.4"
-}
-
-Response：
-
-{
-  "session_id": "sess-a8f32d",
-  "remote_port": 10003,
-  "frps_server": "oracle.example.com",
-  "frps_port": 7000
-}
-25. API: Ready
-POST /api/v1/sessions/{session_id}/ready
-
-Request：
-
-{
-  "status": "READY"
-}
-
-Oracle 更新：
-
-status = READY
-26. API: Heartbeat
-POST /api/v1/sessions/{session_id}/heartbeat
-
-Request：
-
-{
-  "status": "RUNNING"
-}
-
-Oracle 更新：
-
-last_heartbeat
-status
-
-建议：
-
-Heartbeat Interval = 30 seconds
-27. No Runner Release API
-
-本项目不实现：
-
-POST /api/v1/sessions/{session_id}/release
-
-Runner 不负责主动释放 Proxy Session。
-
-原因：
-
-Proxy 的生命周期由：
-
-GitHub Workflow Run
-
-决定。
-
-Runner 退出：
-
-Workflow Stop
-    ↓
-Job Stop
-    ↓
-Runner Stop
-    ↓
-frpc Stop
-    ↓
-FRP Tunnel Disconnect
-
-Oracle 根据：
-
-GitHub Workflow 状态
-+
-FRP Tunnel 状态
-+
-Heartbeat
-
-完成 Session 清理。
-
-28. Stopping a Proxy
-
-当 Oracle 不需要某个 Proxy 时：
-
-Oracle 必须调用 GitHub API Cancel Workflow Run。
-
-流程：
-
-Oracle Controller
-       │
-       ▼
-找到 session_id
-       │
-       ▼
-查询 run_id
-       │
-       ▼
-Session → STOPPING
-       │
-       ▼
-调用 GitHub Cancel Workflow API
-       │
-       ▼
-GitHub Cancel Run
-       │
-       ▼
-Job Cancelled
-       │
-       ▼
-Runner Exit
-       │
-       ▼
-frpc Exit
-       │
-       ▼
-FRP Tunnel Disconnect
-       │
-       ▼
-Oracle 检测 Tunnel Disconnect
-       │
-       ▼
-Session → RELEASED
-       │
-       ▼
-Remote Port → FREE
-29. Oracle Must Not Delete frpc Configuration
-
-Oracle 不执行：
-
-通知 Runner
-    ↓
-删除 frpc.toml
-
-也不执行：
-
-通知 Runner
-    ↓
-停止 frpc
-
-也不执行：
-
-通知 Runner
-    ↓
-停止 SOCKS5
-
-Oracle 只执行：
-
-Cancel GitHub Workflow Run
-
-之后由 GitHub Actions 生命周期自然终止 Runner。
-
-30. Stopping Workflow
-
-Oracle 停止 Proxy：
-
-POST /api/v1/proxies/{id}/stop
-
-内部执行：
-
-1. 查询 Proxy Session
-2. 获取 run_id
-3. status → STOPPING
-4. 调用 GitHub Cancel Workflow Run API
-5. 记录 github_cancel_requested_at
-6. 等待 GitHub Run 状态更新
-7. 等待 FRP Tunnel 断开
-8. 释放 Remote Port
-9. Session → RELEASED
-31. Important: Do Not Immediately Release Port
-
-取消 Workflow 后不能立即：
-
-Port → FREE
-
-因为：
-
-GitHub Cancel Request
-        │
-        ▼
-GitHub Job Cancellation
-        │
-        ▼
-Runner Process Termination
-        │
-        ▼
-frpc Termination
-        │
-        ▼
-FRP Tunnel Disconnect
-        │
-        ▼
-frps Release Port
-
-整个过程可能需要几秒钟。
-
-因此 Oracle 必须等待实际 FRP Tunnel 断开。
-
-32. Port Release Verification
-
-端口释放必须满足：
-
-1. GitHub Workflow 已取消或完成
-2. Runner Heartbeat 已停止
-3. FRP Tunnel 已断开
-4. frps 不再持有该 Remote Port
-
-全部满足后：
-
-Session → RELEASED
-Port → FREE
-
-否则继续：
-
-RELEASING
-33. Existing FRP Port Release Delay
-
-由于 GitHub Runner 终止不是瞬时完成：
-
-Cancel Workflow
-    ↓
-等待 Runner 退出
-    ↓
-等待 frpc 退出
-    ↓
-等待 frps 检测连接关闭
-
-因此可能出现：
-
-Workflow 已 CANCELLED
-但 FRP Port 仍暂时存在
-
-系统应允许：
-
-5～30 秒
-
-的清理窗口。
-
-建议：
-
-每 1 秒检查一次
-最大等待 30 秒
-
-如果超过 30 秒：
-
-Session → CLEANUP_REQUIRED
-
-然后进入异常清理流程。
-
-34. Heartbeat Timeout
-
-Runner 每 30 秒发送 Heartbeat。
-
-如果：
-
-超过 120 秒没有 Heartbeat
-
-Oracle 将 Session 标记：
-
-HEARTBEAT_TIMEOUT
-
-然后：
-
-1. 查询 GitHub Run 状态
-2. 如果仍在运行，则调用 Cancel Workflow
-3. 等待 FRP Tunnel 断开
-4. 回收 Session
-5. 回收 Remote Port
-
-这样即使 Runner 崩溃：
-
-Runner Crash
-    ↓
-Heartbeat Stop
-    ↓
-Oracle Detect
-    ↓
-Cancel Workflow
-    ↓
-FRP Disconnect
-    ↓
-Cleanup
-35. New IP Instead of Rotation
-
-本项目不实现：
-
-Rotate Existing Proxy
-
-需要新 IP 时：
-
-Create New Workflow Run
-
-流程：
-
-Old Proxy A
-    │
-    │ still active
-    ▼
-Create New Workflow Run
-    │
-    ▼
-New Runner
-    │
-    ▼
-New External IP
-    │
-    ▼
-New Proxy Session
-    │
-    ▼
-New Remote Port
-    │
-    ▼
-READY
-    │
-    ▼
-Switch Traffic
-    │
-    ▼
-Cancel Old Workflow
-
-因此：
-
-New Workflow Run
-=
-New Runner
-=
-New IP
-=
-New Proxy
-36. Zero-Downtime Proxy Replacement
-
-假设：
-
-Proxy A
-run_id = 10001
-external_ip = 1.1.1.1
-remote_port = 10001
-
-需要更换 IP。
-
-Oracle 创建：
-
-run_id = 10002
-
-新 Runner：
-
-job_id = 20002
-external_ip = 2.2.2.2
-
-新 Proxy：
-
-session_id = sess-002
-remote_port = 10002
-
-等待：
-
-Proxy B → READY
-
-然后：
-
-Traffic
-    ↓
-Proxy B
-
-最后：
-
-Cancel Workflow run_id=10001
-
-这样可以实现：
-
-Proxy A
-    │
-    │ Active
-    │
-Proxy B
-    │
-    │ READY
-    ▼
-Switch
-    │
-    ▼
-Cancel A
-
-不会因为换 IP 导致代理池瞬间中断。
-
-37. Workflow Template
-
-所有 Proxy Workflow 使用相同模板。
+last_health_check_error TEXT
 
 例如：
+
+health_status = HEALTHY
+health_check_failures = 0
+last_health_check_ip = 1.2.3.4
+49. API List
+
+Oracle Controller：
+
+POST /api/v1/sessions/register
+
+POST /api/v1/sessions/{session_id}/ready
+
+POST /api/v1/sessions/{session_id}/heartbeat
+
+GET /api/v1/proxies
+
+GET /api/v1/proxies/{run_id}
+
+POST /api/v1/proxies/{run_id}/stop
+
+不实现：
+
+POST /api/v1/sessions/{session_id}/release
+50. Proxy Stop API
+
+接口：
+
+POST /api/v1/proxies/{run_id}/stop
+
+内部流程：
+
+1. 根据 run_id 查询 Session
+2. Session → STOPPING
+3. 获取 GitHub Repository
+4. 调用 GitHub Cancel Workflow API
+5. 记录 github_cancel_requested_at
+6. 等待 GitHub Run 结束
+7. 等待 FRP Tunnel 断开
+8. 回收 Remote Port
+9. Session → RELEASED
+51. Proxy Management Identifier
+
+Proxy Pool 对外建议使用：
+
+run_id
+
+作为 Proxy 生命周期标识。
+
+内部使用：
+
+session_id
+
+作为 Oracle Session 标识。
+
+例如：
+
+run_id
+    ↓
+session_id
+    ↓
+remote_port
+    ↓
+external_ip
+
+停止：
+
+run_id
+    ↓
+查询 Session
+    ↓
+Cancel Workflow Run
+52. Workflow Template
+
+所有 Proxy Workflow 使用统一模板：
 
 name: Proxy Runner
 
@@ -1260,43 +1627,25 @@ jobs:
           chmod +x /tmp/bootstrap.sh
           sudo /tmp/bootstrap.sh
 
-Workflow 文件不得包含：
+Workflow 文件不包含：
 
 run_id
 job_id
+runner_id
 session_id
 remote_port
 external_ip
-runner_id
 
-这些信息全部运行时动态获取。
+全部运行时动态确定。
 
-38. Runner Bootstrap Agent
+53. Bootstrap Agent
 
 建议：
 
 runner-bootstrap.py
 
-职责：
+流程：
 
-1. get_run_id()
-2. get_job_id()
-3. get_runner_id()
-4. get_external_ip()
-5. register_session()
-6. generate_frpc_config()
-7. start_frpc()
-8. wait_for_tunnel()
-9. report_ready()
-10. heartbeat_loop()
-
-不负责：
-
-release_session()
-
-因为 Proxy 终止由 GitHub Workflow 终止触发。
-
-39. Runner Lifecycle
 START
   │
   ▼
@@ -1318,10 +1667,7 @@ external_ip
 Register Oracle
   │
   ▼
-Receive session_id
-  │
-  ▼
-Receive remote_port
+Receive Session
   │
   ▼
 Generate frpc.toml
@@ -1336,365 +1682,284 @@ Wait FRP Tunnel
 Report READY
   │
   ▼
-Heartbeat
-  │
-  │
-  │ Workflow Cancelled
-  ▼
-Runner Process Terminated
+Heartbeat Loop
   │
   ▼
-frpc Terminates
-40. Oracle Controller Responsibilities
+Wait Job Termination
+54. Complete Health State Machine
 
-Oracle Controller 负责：
+最终状态机：
 
-1. 创建 Workflow Run
-2. 获取 run_id
-3. 创建 Workflow 数据库记录
-4. 接收 Runner 注册
-5. 接收 job_id
-6. 接收 external_ip
-7. 建立 Run / Job / Runner 映射
-8. 创建 Proxy Session
-9. 动态分配 Remote Port
-10. 返回 FRP 配置
-11. 管理 Session 状态
-12. 接收 Heartbeat
-13. 监控 FRP Tunnel
-14. 取消 Workflow
-15. 检测 Workflow 终止
-16. 回收 Session
-17. 回收 Remote Port
-18. 处理异常 Runner
-41. Runner Responsibilities
+                         CREATE WORKFLOW
+                                │
+                                ▼
+                             QUEUED
+                                │
+                    Job Started Within 120s?
+                         ┌──────┴──────┐
+                         │             │
+                        Yes            No
+                         │             │
+                         ▼             ▼
+                RUNNER_STARTED   STARTUP_TIMEOUT
+                         │             │
+                Register Within 60s?   │
+                    ┌────┴────┐        │
+                    │         │        │
+                   Yes        No       │
+                    │         │        │
+                    ▼         ▼        │
+               REGISTERED  REG_TIMEOUT │
+                    │         │        │
+                    ▼         │        │
+                CONNECTING    │        │
+                    │         │        │
+               FRP Within 60s?│        │
+                 ┌──┴──┐      │        │
+                Yes     No     │        │
+                 │      │      │        │
+                 ▼      ▼      ▼        ▼
+               READY TUNNEL_TIMEOUT  CANCEL
+                 │
+           Proxy Health Check
+                 │
+            ┌────┴────┐
+            │         │
+           Pass      Fail
+            │         │
+            ▼         ▼
+         HEALTHY    RETRY
+            │         │
+            │    3 Failures?
+            │      ┌──┴──┐
+            │     No    Yes
+            │      │      │
+            │      └──┐   ▼
+            │         │ UNHEALTHY
+            │         │   │
+            ▼         │   ▼
+          RUNNING ◄───┘ CANCEL
+            │
+            │
+     Heartbeat / Tunnel / Health
+            │
+       ┌────┴────┐
+       │         │
+      OK       Failure
+       │         │
+       │         ▼
+       │    UNHEALTHY
+       │         │
+       ▼         ▼
+    RUNNING   CANCEL
+                 │
+                 ▼
+              STOPPING
+                 │
+                 ▼
+          Runner Terminated
+                 │
+                 ▼
+           FRP Disconnected
+                 │
+                 ▼
+            Port Released
+                 │
+                 ▼
+             RELEASED
+55. Final System Rules
 
-Runner 负责：
+Cline 实现时必须遵循以下规则：
 
-1. 获取 run_id
-2. 获取 job_id
-3. 获取 runner_id
-4. 获取 external_ip
-5. 注册 Oracle
-6. 获取 Remote Port
-7. 动态生成 frpc.toml
-8. 启动 frpc
-9. 建立 FRP Tunnel
-10. 启动 SOCKS5
-11. 上报 READY
-12. 发送 Heartbeat
+1. Workflow 必须是单 Job。
 
-Runner 不负责：
+2. 1 Run = 1 Job。
 
-删除 frpc.toml
-主动 Release Proxy
-主动释放 Remote Port
-通知 Oracle 停止 Proxy
-42. Proxy Management Identifier
+3. 1 Job = 1 Runner。
 
-代理池管理建议：
+4. 1 Runner = 1 Proxy Session。
 
-外部业务标识：
+5. 1 Session = 1 Remote Port。
+
+6. Workflow 不绑定固定 Oracle 端口。
+
+7. Runner 启动后主动注册 Oracle。
+
+8. Runner 自己获取 external_ip。
+
+9. external_ip 必须直接 curl ipconfig.io 获取。
+
+10. 获取 external_ip 不得经过 SOCKS5。
+
+11. Runner → Oracle 不需要认证。
+
+12. Oracle 根据 run_id / job_id 建立映射。
+
+13. Oracle 动态分配 Remote Port。
+
+14. Runner 动态生成 frpc.toml。
+
+15. Oracle 必须执行 FRP Tunnel 检查。
+
+16. Oracle 必须执行端到端 SOCKS5 健康检查。
+
+17. Proxy 健康检查必须验证实际出口 IP。
+
+18. Observed IP 必须与 Runner external_ip 一致。
+
+19. Workflow 启动超时必须自动取消。
+
+20. Runner 注册超时必须自动取消。
+
+21. FRP Tunnel 连接超时必须自动取消。
+
+22. Proxy 连续健康检查失败必须自动取消。
+
+23. Heartbeat 超时必须自动取消或进入清理。
+
+24. 停止 Proxy 时必须通过 GitHub API Cancel Workflow Run。
+
+25. Oracle 不通知 Runner 删除 frpc 配置。
+
+26. Oracle 不实现 Runner Release API。
+
+27. Runner 随 Workflow / Job 终止。
+
+28. frpc 随 Runner 终止。
+
+29. Remote Port 必须等待 FRP Tunnel 实际断开后释放。
+
+30. 新 IP 通过创建新的 Workflow Run 获取。
+
+31. 不实现传统 Rotate Runner。
+
+32. 可以通过新旧 Proxy 并行实现零停机换 IP。
+
+33. Proxy 对外管理标识使用 run_id。
+
+34. Oracle 内部 Session 标识使用 session_id。
+
+35. 所有状态变化必须写入 SQLite。
+
+36. 所有超时必须有明确状态和清理流程。
+
+37. 所有异常最终必须进入 FAILED / CLEANUP / RELEASED 闭环。
+56. Final Architecture
+
+最终系统模型：
+
+                         Oracle Controller
+                                │
+                  ┌─────────────┴─────────────┐
+                  │                           │
+             GitHub API                 SQLite Database
+                  │                           │
+                  ▼                           │
+          Workflow Run                       │
+                  │                           │
+                  ▼                           │
+                 Job                           │
+                  │                           │
+                  ▼                           │
+               Runner                         │
+                  │                           │
+        ┌─────────┴─────────┐                 │
+        │                   │                 │
+        ▼                   ▼                 │
+  Get Job ID         curl ipconfig.io         │
+        │                   │                 │
+        └─────────┬─────────┘                 │
+                  │                           │
+                  ▼                           │
+             Register ────────────────────────┤
+                  │                           │
+                  ▼                           │
+             Session                           │
+                  │                           │
+                  ▼                           │
+           Dynamic Port                        │
+                  │                           │
+                  ▼                           │
+               frpc                            │
+                  │                           │
+                  ▼                           │
+               frps                            │
+                  │                           │
+                  ▼                           │
+           Remote Port                         │
+                  │                           │
+                  ▼                           │
+           SOCKS5 Proxy                        │
+                  │                           │
+                  ▼                           │
+              Internet                         │
+                                              │
+                  ┌───────────────────────────┘
+                  │
+                  ▼
+            Health Checker
+                  │
+          ┌───────┴────────┐
+          │                │
+       HEALTHY          UNHEALTHY
+          │                │
+          │                ▼
+          │          Cancel Workflow
+          │                │
+          ▼                ▼
+        RUNNING       Runner Terminated
+                           │
+                           ▼
+                      frpc Exit
+                           │
+                           ▼
+                    Tunnel Disconnect
+                           │
+                           ▼
+                     Port Released
+
+最终核心逻辑可以概括成：
+
+创建代理
+    =
+创建 GitHub Workflow Run
+
+代理身份
+    =
 run_id
 
-内部标识：
+代理启动
+    =
+Runner 注册 + FRP 建连 + 端到端健康检查
 
-session_id
+代理健康
+    =
+Oracle Remote Port 能通过 SOCKS5 访问 Internet
+且出口 IP == Runner external_ip
 
-例如：
+代理换 IP
+    =
+创建新的 Workflow Run
 
-run_id = 123456
+代理停止
+    =
+Cancel GitHub Workflow Run
 
-可以定位：
+Runner 清理
+    =
+GitHub 自动终止 Runner
 
-job_id
-runner_id
-session_id
-remote_port
-external_ip
+frpc 清理
+    =
+Runner 终止导致 frpc 退出
 
-管理操作：
+端口回收
+    =
+Oracle 确认 FRP Tunnel 断开后释放
 
-查看 Proxy
-    ↓
-run_id
-
-停止 Proxy
-    ↓
-run_id
-    ↓
-查询 session
-    ↓
-获取 run_id
-    ↓
-Cancel GitHub Workflow
-43. Proxy Stop API
-
-建议：
-
-POST /api/v1/proxies/{run_id}/stop
-
-Oracle 内部：
-
-1. 根据 run_id 查询 Proxy Session
-2. status → STOPPING
-3. 获取 GitHub Repository
-4. 获取 GitHub Workflow Run ID
-5. 调用 GitHub Cancel Workflow API
-6. 等待 GitHub Run 结束
-7. 等待 FRP Tunnel 断开
-8. 回收 Remote Port
-9. Session → RELEASED
-
-注意：
-
-该 API 是 Oracle Controller 的管理员接口。
-
-不是 Runner API。
-
-44. Proxy Pool Display
-
-代理池显示：
-
-Run ID
-Job ID
-Runner ID
-Session ID
-Remote Port
-External IP
-Status
-Last Heartbeat
-Created At
-
-例如：
-
-Run ID    Job ID    Session     Port     External IP    Status
-------------------------------------------------------------------
-10001     20001     sess-001    10001    1.1.1.1        READY
-10002     20002     sess-002    10002    2.2.2.2        READY
-10003     20003     sess-003    10003    3.3.3.3        STOPPING
-45. Complete Proxy Creation Flow
-Oracle
-    │
-    │ GitHub API
-    ▼
-Create Workflow Run
-    │
-    ▼
-GitHub returns run_id
-    │
-    ▼
-Oracle DB
-    │
-    └── status = QUEUED
-             │
-             ▼
-        Job Starts
-             │
-             ▼
-          Runner
-             │
-             ├── Get run_id
-             ├── Get job_id
-             ├── Get runner_id
-             └── curl ipconfig.io
-                       │
-                       ▼
-                  external_ip
-                       │
-                       ▼
-              Register Oracle
-                       │
-                       ▼
-             Allocate Port
-                       │
-                       ▼
-             session_id
-             remote_port
-                       │
-                       ▼
-              Generate frpc
-                       │
-                       ▼
-                   Start frpc
-                       │
-                       ▼
-                   Connect frps
-                       │
-                       ▼
-                     READY
-46. Complete Proxy Destruction Flow
-Oracle
-    │
-    │ Stop Proxy
-    ▼
-Find run_id
-    │
-    ▼
-Session → STOPPING
-    │
-    │ GitHub API
-    ▼
-Cancel Workflow Run
-    │
-    ▼
-GitHub Job Cancelled
-    │
-    ▼
-Runner Terminated
-    │
-    ▼
-frpc Terminated
-    │
-    ▼
-FRP Tunnel Disconnected
-    │
-    ▼
-Oracle Detect Disconnect
-    │
-    ▼
-Session → RELEASED
-    │
-    ▼
-Remote Port → FREE
-47. Complete System Architecture
-                              GitHub
-                                │
-                                │ Workflow API
-                                ▼
-                     ┌─────────────────────┐
-                     │ Workflow Run        │
-                     │                     │
-                     │ 1 Run = 1 Proxy     │
-                     └──────────┬──────────┘
-                                │
-                                ▼
-                             1 Job
-                                │
-                                ▼
-                            1 Runner
-                                │
-                                │
-                     ┌──────────┴──────────┐
-                     │                     │
-                     ▼                     ▼
-              Get Job ID             curl ipconfig.io
-                     │                     │
-                     │                     ▼
-                     │                external_ip
-                     │                     │
-                     └──────────┬──────────┘
-                                │
-                                │ Register
-                                ▼
-┌─────────────────────────────────────────────────────────────┐
-│                       Oracle VPS                            │
-│                                                             │
-│  ┌───────────────────────┐                                  │
-│  │ Proxy Controller      │                                  │
-│  │                       │                                  │
-│  │ Workflow Manager      │                                  │
-│  │ Session Manager       │                                  │
-│  │ Port Manager          │                                  │
-│  └───────────┬───────────┘                                  │
-│              │                                              │
-│              ▼                                              │
-│       ┌──────────────┐                                      │
-│       │ SQLite       │                                      │
-│       │              │                                      │
-│       │ Runs         │                                      │
-│       │ Jobs         │                                      │
-│       │ Runners      │                                      │
-│       │ Sessions     │                                      │
-│       │ Ports        │                                      │
-│       └──────────────┘                                      │
-│                                                             │
-│              │                                              │
-│              ▼                                              │
-│             frps                                             │
-│              │                                              │
-└──────────────┼──────────────────────────────────────────────┘
-               │
-               │ FRP Reverse Tunnel
-               │
-               ▼
-          Runner frpc
-               │
-               ▼
-          Runner SOCKS5
-               │
-               ▼
-            Internet
-48. Final Lifecycle Model
-
-整个系统最终采用：
-
-                  CREATE
-                     │
-                     ▼
-             GitHub Workflow
-                     │
-                     ▼
-                 Workflow Run
-                     │
-                     ▼
-                    Job
-                     │
-                     ▼
-                  Runner
-                     │
-                     ▼
-               Proxy Session
-                     │
-                     ▼
-               Remote Port
-                     │
-                     ▼
-                  Proxy
-                     │
-                     │
-               Need New IP
-                     │
-                     ▼
-              Create New Run
-                     │
-                     ▼
-              New Proxy READY
-                     │
-                     ▼
-               Switch Traffic
-                     │
-                     ▼
-              Cancel Old Run
-                     │
-                     ▼
-             Runner Terminates
-                     │
-                     ▼
-               frpc Terminates
-                     │
-                     ▼
-              Tunnel Disconnect
-                     │
-                     ▼
-                Port Released
-
-最终核心设计：
-
-创建 Proxy
-    = 创建 GitHub Workflow Run
-
-运行 Proxy
-    = GitHub Job / Runner 运行
-
-获得新 IP
-    = 创建新的 Workflow Run
-
-停止 Proxy
-    = Oracle 调用 GitHub API Cancel Run
-
-删除 frpc
-    = 不需要 Oracle 操作，Runner 随 Job 终止
-
-释放端口
-    = FRP Tunnel 实际断开后由 Oracle 自动回收
+异常恢复
+    =
+Timeout / Heartbeat / Tunnel / Health Check
+    → Cancel Workflow
+    → Cleanup
+    → Release
