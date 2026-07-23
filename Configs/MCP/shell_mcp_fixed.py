@@ -1,8 +1,9 @@
 """
-MCP Shell Server (FIXED) - with PTY session support & structured output.
-Now supports both SSE (Cline) and Streamable HTTP (Cursor etc.) on the same port.
+MCP Shell Server (Extended) - with file read/write support.
+Based on shell_mcp.py v2, extended with write_file & read_file tools.
+Supports both SSE (Cline) and Streamable HTTP (Cursor etc.) on the same port.
 
-v2: shlex.split(), session lock fixes, EOF cleanup
+v3: Added write_file, read_file tools to bypass shell encoding issues.
 """
 
 from mcp.server.fastmcp import FastMCP
@@ -24,9 +25,9 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
 )
-log = logging.getLogger("mcp_shell_v2")
+log = logging.getLogger("mcp_shell_v3")
 
-mcp = FastMCP("shell")
+mcp = FastMCP("shell-extended")
 
 class CommandResult:
     def __init__(self, stdout, stderr, exit_code, timed_out):
@@ -153,7 +154,6 @@ async def _reader_loop(session):
         except (BlockingIOError, OSError):
             return
         if not data:
-            # EOF: actively close the session to prevent zombie processes
             session.closed = True
             asyncio.ensure_future(_cleanup_session_async(session))
             return
@@ -181,7 +181,6 @@ async def _reader_loop(session):
             pass
 
 async def _cleanup_session_async(session):
-    """Clean up a session that has reached EOF."""
     try:
         if session.child_pid:
             try:
@@ -209,7 +208,6 @@ async def _cleanup_session_async(session):
 def _cleanup_stale_sessions():
     now = time.time()
     stale_ids = []
-    # Lock the entire iteration to prevent race conditions
     async def _do_cleanup():
         nonlocal stale_ids
         async with _session_lock:
@@ -227,7 +225,6 @@ def _cleanup_stale_sessions():
     try:
         asyncio.get_event_loop().run_until_complete(_do_cleanup())
     except RuntimeError:
-        # If no event loop is running, create a new one
         loop = asyncio.new_event_loop()
         try:
             loop.run_until_complete(_do_cleanup())
@@ -278,8 +275,8 @@ async def send_input(session_id, text):
         if not session or not session.is_alive():
             return json.dumps({"error": f"Session '{session_id}' not found or not alive"})
         try:
-            if not text.endswith("\n"):
-                text += "\n"
+            if not text.endswith(chr(10)):
+                text += chr(10)
             data = text.encode()
             os.write(session.master_fd, data)
             session.last_active = time.time()
@@ -291,7 +288,6 @@ async def send_input(session_id, text):
 
 @mcp.tool()
 async def read_output(session_id, timeout=2.0):
-    # Get session inside the lock to prevent race conditions
     async with _session_lock:
         session = sessions.get(session_id)
         if not session:
@@ -337,9 +333,6 @@ async def close_session(session_id):
 
 @mcp.tool()
 async def start_background(command):
-    """Start a long-running/interactive command in background (non-blocking).
-    Returns session_id immediately; use send_input/read_output/close_session
-    to interact. Ideal for ssh -R, reverse shells, python -i, etc."""
     _cleanup_stale_sessions()
     sid = uuid.uuid4().hex[:8]
     async with _session_lock:
@@ -373,10 +366,40 @@ async def start_background(command):
             log.error(f"[start_background] error: {e}")
             return json.dumps({"error": str(e)})
 
+# ====================== NEW: File Operations ======================
+
+@mcp.tool()
+async def write_file(path, content):
+    """Write content directly to a file on the remote server. Bypasses shell."""
+    try:
+        dirname = os.path.dirname(path)
+        if dirname:
+            os.makedirs(dirname, exist_ok=True)
+        with open(path, 'w', encoding='utf-8') as f:
+            f.write(content)
+        size = os.path.getsize(path)
+        log.info(f"[write_file] written {size} bytes to {path}")
+        return json.dumps({"status": "ok", "path": path, "bytes": size})
+    except Exception as e:
+        log.error(f"[write_file] error: {e}")
+        return json.dumps({"status": "error", "error": str(e)})
+
+@mcp.tool()
+async def read_file(path):
+    """Read the contents of a file from the remote server."""
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            content = f.read()
+        log.info(f"[read_file] read {len(content)} bytes from {path}")
+        return json.dumps({"status": "ok", "content": content, "bytes": len(content)})
+    except Exception as e:
+        log.error(f"[read_file] error: {e}")
+        return json.dumps({"status": "error", "error": str(e)})
+
 # ====================== Start Dual Transport Server ======================
 if __name__ == "__main__":
-    log.info(f"Starting MCP Shell server v2 (dual transport) on {LISTEN_HOST}:{LISTEN_PORT}")
-    print(f"MCP Shell server v2 (dual transport) starting on {LISTEN_HOST}:{LISTEN_PORT}")
+    log.info(f"Starting MCP Shell server v3 (extended) on {LISTEN_HOST}:{LISTEN_PORT}")
+    print(f"MCP Shell server v3 (extended) starting on {LISTEN_HOST}:{LISTEN_PORT}")
 
     sse_app = mcp.sse_app()
     stream_app = mcp.streamable_http_app()
