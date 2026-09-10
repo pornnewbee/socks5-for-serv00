@@ -1,38 +1,70 @@
-name: Diagnose Actions Exit IP Collector
+name: Diagnose 20 Parallel Actions
 
 on:
   workflow_dispatch:
 
 jobs:
   diagnose:
-    name: Diagnose Collector
+    name: Runner ${{ matrix.id }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        id:
+          - 1
+          - 2
+          - 3
+          - 4
+          - 5
+          - 6
+          - 7
+          - 8
+          - 9
+          - 10
+          - 11
+          - 12
+          - 13
+          - 14
+          - 15
+          - 16
+          - 17
+          - 18
+          - 19
+          - 20
+
     runs-on: ubuntu-latest
 
     steps:
 
       # ============================================================
-      # 1. 获取 GitHub Actions 出口信息
+      # 1. 获取 Shopify / Cloudflare Trace
       # ============================================================
       - name: Get Shopify trace
         run: |
           echo "========================================"
-          echo "Shopify Cloudflare Trace"
+          echo "Runner ID: ${{ matrix.id }}"
+          echo "GitHub Runner: $RUNNER_NAME"
           echo "========================================"
 
+          echo
+          echo "=== Shopify Cloudflare Trace ==="
+
           curl --fail --retry 3 \
+            --max-time 30 \
             https://www.shopify.com/cdn-cgi/trace \
             -o trace.txt
 
           cat trace.txt
 
       # ============================================================
-      # 2. 测试 Collector GET
+      # 2. 测试 GET
       # ============================================================
       - name: Test collector GET
         run: |
           echo
           echo "========================================"
           echo "Test GET /"
+          echo "Runner ID: ${{ matrix.id }}"
           echo "========================================"
 
           curl -i \
@@ -40,7 +72,7 @@ jobs:
             https://collector.femboy67.dpdns.org/
 
       # ============================================================
-      # 3. 测试 Collector POST
+      # 3. POST trace 到 Collector
       # ============================================================
       - name: Test collector POST
         env:
@@ -50,6 +82,7 @@ jobs:
           RUN_ID: ${{ github.run_id }}
           RUNNER_OS: ${{ runner.os }}
           RUNNER_ARCH: ${{ runner.arch }}
+          MATRIX_ID: ${{ matrix.id }}
 
         run: |
           python3 <<'PY'
@@ -73,7 +106,7 @@ jobs:
                       values[key] = value
 
           # --------------------------------------------------------
-          # 构造测试数据
+          # 构造报告
           # --------------------------------------------------------
 
           report = {
@@ -100,18 +133,30 @@ jobs:
 
           print()
           print("========================================")
+          print("Runner Information")
+          print("========================================")
+
+          print("Matrix ID:", os.environ["MATRIX_ID"])
+          print("Runner:", os.environ.get("RUNNER_NAME"))
+          print("OS:", os.environ["RUNNER_OS"])
+          print("Architecture:", os.environ["RUNNER_ARCH"])
+
+          print()
+          print("========================================")
           print("POST URL")
           print("========================================")
+
           print(url)
 
           print()
           print("========================================")
           print("Payload")
           print("========================================")
+
           print(json.dumps(report, indent=2))
 
           # --------------------------------------------------------
-          # 创建请求
+          # 创建 HTTP 请求
           # --------------------------------------------------------
 
           req = urllib.request.Request(
@@ -125,14 +170,14 @@ jobs:
               }
           )
 
-          # --------------------------------------------------------
-          # 发送 POST
-          # --------------------------------------------------------
-
           print()
           print("========================================")
           print("Sending POST...")
           print("========================================")
+
+          # --------------------------------------------------------
+          # 发送
+          # --------------------------------------------------------
 
           try:
 
@@ -143,7 +188,7 @@ jobs:
 
                   print()
                   print("========================================")
-                  print("SUCCESS")
+                  print("POST SUCCESS")
                   print("========================================")
 
                   print("HTTP Status:", response.status)
@@ -167,7 +212,7 @@ jobs:
 
               print()
               print("========================================")
-              print("HTTP ERROR")
+              print("POST HTTP ERROR")
               print("========================================")
 
               print("HTTP Status:", e.code)
@@ -192,31 +237,20 @@ jobs:
 
               print()
               print("========================================")
-              print("Request Information")
+              print("Diagnostic Information")
               print("========================================")
 
-              print("URL:", url)
-              print("Method: POST")
-              print("Content-Type: application/json")
-              print("User-Agent: GitHub-Actions-Exit-IP-Diagnostic")
+              print("Matrix ID:", os.environ["MATRIX_ID"])
+              print("Trace IP:", values.get("ip"))
+              print("Trace Colo:", values.get("colo"))
+              print("Trace Country:", values.get("loc"))
+              print("HTTP:", values.get("http"))
+              print("TLS:", values.get("tls"))
 
               print()
-              print("========================================")
-              print("Diagnostic result")
-              print("========================================")
+              print("This runner received HTTP", e.code)
 
-              if e.code == 403:
-                  print("POST returned HTTP 403.")
-                  print("The response headers/body above should identify")
-                  print("whether Cloudflare, reverse proxy, or FastAPI")
-                  print("is rejecting the request.")
-
-              elif e.code >= 500:
-                  print("Server returned a 5xx error.")
-
-              else:
-                  print("Server returned an HTTP error.")
-
+              # 让这个 Job 最终显示失败
               raise
 
           except Exception as e:
@@ -226,13 +260,13 @@ jobs:
               print("REQUEST FAILED")
               print("========================================")
 
-              print(type(e).__name__)
-              print(str(e))
+              print("Exception:", type(e).__name__)
+              print("Message:", str(e))
 
               raise
 
       # ============================================================
-      # 4. 如果 POST 成功，再查询统计
+      # 4. 如果 POST 成功，查询统计
       # ============================================================
       - name: Check statistics
         if: ${{ success() }}
@@ -240,6 +274,7 @@ jobs:
           echo
           echo "========================================"
           echo "Collector statistics"
+          echo "Runner ID: ${{ matrix.id }}"
           echo "========================================"
 
           curl -i \
