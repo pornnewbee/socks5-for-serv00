@@ -4,11 +4,10 @@ import os
 import sqlite3
 from datetime import datetime, timezone
 
-from fastapi import FastAPI, Header, HTTPException
+from fastapi import FastAPI
 from pydantic import BaseModel
 
 DB_PATH = os.getenv("DB_PATH", "./actions_exit.db")
-REPORT_TOKEN = os.getenv("REPORT_TOKEN", "")
 
 app = FastAPI(title="GitHub Actions Exit IP Collector")
 
@@ -24,7 +23,7 @@ class TraceReport(BaseModel):
     rbi: str | None = None
     kex: str | None = None
 
-    # GitHub Actions 自己附带的信息
+    # GitHub Actions 信息
     repository: str | None = None
     workflow: str | None = None
     run_id: str | None = None
@@ -88,22 +87,6 @@ def startup():
     init_db()
 
 
-def check_token(authorization: str | None):
-    if not REPORT_TOKEN:
-        raise HTTPException(
-            status_code=500,
-            detail="REPORT_TOKEN is not configured"
-        )
-
-    expected = f"Bearer {REPORT_TOKEN}"
-
-    if authorization != expected:
-        raise HTTPException(
-            status_code=401,
-            detail="Invalid token"
-        )
-
-
 @app.get("/")
 def root():
     return {
@@ -112,12 +95,13 @@ def root():
     }
 
 
+# ============================================================
+# Actions 提交出口信息
+# 不需要 Token
+# ============================================================
+
 @app.post("/api/report")
-def report(
-    data: TraceReport,
-    authorization: str | None = Header(default=None)
-):
-    check_token(authorization)
+def report(data: TraceReport):
 
     timestamp = datetime.now(timezone.utc).isoformat()
 
@@ -161,6 +145,7 @@ def report(
     ))
 
     conn.commit()
+
     report_id = conn.execute(
         "SELECT last_insert_rowid()"
     ).fetchone()[0]
@@ -176,11 +161,13 @@ def report(
     }
 
 
+# ============================================================
+# 统计
+# 不需要 Token
+# ============================================================
+
 @app.get("/api/stats")
-def stats(
-    authorization: str | None = Header(default=None)
-):
-    check_token(authorization)
+def stats():
 
     conn = db()
 
@@ -188,6 +175,7 @@ def stats(
         "SELECT COUNT(*) AS count FROM reports"
     ).fetchone()["count"]
 
+    # IP 排名
     ips = conn.execute("""
         SELECT
             ip,
@@ -200,6 +188,7 @@ def stats(
         ORDER BY count DESC
     """).fetchall()
 
+    # Colo 排名
     colos = conn.execute("""
         SELECT
             colo,
@@ -210,6 +199,7 @@ def stats(
         ORDER BY count DESC
     """).fetchall()
 
+    # 国家排名
     countries = conn.execute("""
         SELECT
             loc,
@@ -230,12 +220,13 @@ def stats(
     }
 
 
+# ============================================================
+# 查看最近记录
+# 不需要 Token
+# ============================================================
+
 @app.get("/api/reports")
-def reports(
-    limit: int = 100,
-    authorization: str | None = Header(default=None)
-):
-    check_token(authorization)
+def reports(limit: int = 100):
 
     limit = max(1, min(limit, 1000))
 
