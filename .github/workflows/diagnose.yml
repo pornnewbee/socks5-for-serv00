@@ -1,0 +1,247 @@
+name: Diagnose Actions Exit IP Collector
+
+on:
+  workflow_dispatch:
+
+jobs:
+  diagnose:
+    name: Diagnose Collector
+    runs-on: ubuntu-latest
+
+    steps:
+
+      # ============================================================
+      # 1. 获取 GitHub Actions 出口信息
+      # ============================================================
+      - name: Get Shopify trace
+        run: |
+          echo "========================================"
+          echo "Shopify Cloudflare Trace"
+          echo "========================================"
+
+          curl --fail --retry 3 \
+            https://www.shopify.com/cdn-cgi/trace \
+            -o trace.txt
+
+          cat trace.txt
+
+      # ============================================================
+      # 2. 测试 Collector GET
+      # ============================================================
+      - name: Test collector GET
+        run: |
+          echo
+          echo "========================================"
+          echo "Test GET /"
+          echo "========================================"
+
+          curl -i \
+            --max-time 30 \
+            https://collector.femboy67.dpdns.org/
+
+      # ============================================================
+      # 3. 测试 Collector POST
+      # ============================================================
+      - name: Test collector POST
+        env:
+          REPORT_SERVER: https://collector.femboy67.dpdns.org
+          REPOSITORY: ${{ github.repository }}
+          WORKFLOW: ${{ github.workflow }}
+          RUN_ID: ${{ github.run_id }}
+          RUNNER_OS: ${{ runner.os }}
+          RUNNER_ARCH: ${{ runner.arch }}
+
+        run: |
+          python3 <<'PY'
+          import json
+          import os
+          import urllib.request
+          import urllib.error
+
+          # --------------------------------------------------------
+          # 读取 Shopify trace
+          # --------------------------------------------------------
+
+          values = {}
+
+          with open("trace.txt") as f:
+              for line in f:
+                  line = line.strip()
+
+                  if "=" in line:
+                      key, value = line.split("=", 1)
+                      values[key] = value
+
+          # --------------------------------------------------------
+          # 构造测试数据
+          # --------------------------------------------------------
+
+          report = {
+              "ip": values.get("ip"),
+              "colo": values.get("colo"),
+              "loc": values.get("loc"),
+              "tls": values.get("tls"),
+              "http": values.get("http"),
+              "warp": values.get("warp"),
+              "gateway": values.get("gateway"),
+              "rbi": values.get("rbi"),
+              "kex": values.get("kex"),
+
+              "repository": os.environ["REPOSITORY"],
+              "workflow": os.environ["WORKFLOW"],
+              "run_id": os.environ["RUN_ID"],
+              "runner_os": os.environ["RUNNER_OS"],
+              "runner_arch": os.environ["RUNNER_ARCH"],
+          }
+
+          body = json.dumps(report).encode("utf-8")
+
+          url = os.environ["REPORT_SERVER"] + "/api/report"
+
+          print()
+          print("========================================")
+          print("POST URL")
+          print("========================================")
+          print(url)
+
+          print()
+          print("========================================")
+          print("Payload")
+          print("========================================")
+          print(json.dumps(report, indent=2))
+
+          # --------------------------------------------------------
+          # 创建请求
+          # --------------------------------------------------------
+
+          req = urllib.request.Request(
+              url,
+              data=body,
+              method="POST",
+              headers={
+                  "Content-Type": "application/json",
+                  "User-Agent": "GitHub-Actions-Exit-IP-Diagnostic",
+                  "Accept": "application/json",
+              }
+          )
+
+          # --------------------------------------------------------
+          # 发送 POST
+          # --------------------------------------------------------
+
+          print()
+          print("========================================")
+          print("Sending POST...")
+          print("========================================")
+
+          try:
+
+              with urllib.request.urlopen(
+                  req,
+                  timeout=30
+              ) as response:
+
+                  print()
+                  print("========================================")
+                  print("SUCCESS")
+                  print("========================================")
+
+                  print("HTTP Status:", response.status)
+
+                  print()
+                  print("Response Headers:")
+                  print("----------------------------------------")
+                  print(response.headers)
+
+                  response_body = response.read().decode(
+                      "utf-8",
+                      errors="replace"
+                  )
+
+                  print()
+                  print("Response Body:")
+                  print("----------------------------------------")
+                  print(response_body)
+
+          except urllib.error.HTTPError as e:
+
+              print()
+              print("========================================")
+              print("HTTP ERROR")
+              print("========================================")
+
+              print("HTTP Status:", e.code)
+
+              print()
+              print("Response Headers:")
+              print("----------------------------------------")
+              print(e.headers)
+
+              try:
+                  error_body = e.read().decode(
+                      "utf-8",
+                      errors="replace"
+                  )
+              except Exception as read_error:
+                  error_body = f"<failed to read response: {read_error}>"
+
+              print()
+              print("Response Body:")
+              print("----------------------------------------")
+              print(error_body)
+
+              print()
+              print("========================================")
+              print("Request Information")
+              print("========================================")
+
+              print("URL:", url)
+              print("Method: POST")
+              print("Content-Type: application/json")
+              print("User-Agent: GitHub-Actions-Exit-IP-Diagnostic")
+
+              print()
+              print("========================================")
+              print("Diagnostic result")
+              print("========================================")
+
+              if e.code == 403:
+                  print("POST returned HTTP 403.")
+                  print("The response headers/body above should identify")
+                  print("whether Cloudflare, reverse proxy, or FastAPI")
+                  print("is rejecting the request.")
+
+              elif e.code >= 500:
+                  print("Server returned a 5xx error.")
+
+              else:
+                  print("Server returned an HTTP error.")
+
+              raise
+
+          except Exception as e:
+
+              print()
+              print("========================================")
+              print("REQUEST FAILED")
+              print("========================================")
+
+              print(type(e).__name__)
+              print(str(e))
+
+              raise
+
+      # ============================================================
+      # 4. 如果 POST 成功，再查询统计
+      # ============================================================
+      - name: Check statistics
+        if: ${{ success() }}
+        run: |
+          echo
+          echo "========================================"
+          echo "Collector statistics"
+          echo "========================================"
+
+          curl -i \
+            --max-time 30 \
+            https://collector.femboy67.dpdns.org/api/stats
