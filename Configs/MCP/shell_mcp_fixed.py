@@ -1247,61 +1247,61 @@ if __name__ == "__main__":
     # --------------------------------------------------------
 
     async def dispatcher(scope, receive, send):
-    if scope["type"] != "http":
-        return await http_app(scope, receive, send)
-
-    path = scope.get("path", "/")
-
-    # ---- Debug: log MCP JSON-RPC requests ----
-    if path.startswith("/mcp"):
-        body_parts = []
-
-        async def debug_receive():
-            message = await receive()
-
-            if message["type"] == "http.request":
-                body = message.get("body", b"")
-                if body:
-                    body_parts.append(body)
-
-                if not message.get("more_body", False):
-                    try:
-                        import json
-
-                        raw_body = b"".join(body_parts)
-                        data = json.loads(raw_body)
-
-                        log.info(
-                            "MCP DEBUG: method=%s id=%s",
-                            data.get("method"),
-                            data.get("id"),
-                        )
-
-                    except Exception:
-                        log.info(
-                            "MCP DEBUG: non-JSON body (%d bytes)",
-                            sum(len(x) for x in body_parts),
-                        )
-
-            return message
-
-        receive = debug_receive
-
-    if path.startswith("/sse") or path.startswith("/messages"):
-        await app.state.sse_app(scope, receive, send)
-        return
-
-    if path.startswith("/mcp"):
-        await app.state.stream_app(scope, receive, send)
-        return
-
-    if path == "/health":
-        response = Response("OK", status_code=200, media_type="text/plain")
+        if scope["type"] != "http":
+            return await http_app(scope, receive, send)
+    
+        path = scope.get("path", "/")
+    
+        # ---- Debug: log MCP JSON-RPC requests ----
+        if path.startswith("/mcp"):
+            body_parts = []
+    
+            async def debug_receive():
+                message = await receive()
+    
+                if message["type"] == "http.request":
+                    body = message.get("body", b"")
+                    if body:
+                        body_parts.append(body)
+    
+                    if not message.get("more_body", False):
+                        try:
+                            import json
+    
+                            raw_body = b"".join(body_parts)
+                            data = json.loads(raw_body)
+    
+                            log.info(
+                                "MCP DEBUG: method=%s id=%s",
+                                data.get("method"),
+                                data.get("id"),
+                            )
+    
+                        except Exception:
+                            log.info(
+                                "MCP DEBUG: non-JSON body (%d bytes)",
+                                sum(len(x) for x in body_parts),
+                            )
+    
+                return message
+    
+            receive = debug_receive
+    
+        if path.startswith("/sse") or path.startswith("/messages"):
+            await app.state.sse_app(scope, receive, send)
+            return
+    
+        if path.startswith("/mcp"):
+            await app.state.stream_app(scope, receive, send)
+            return
+    
+        if path == "/health":
+            response = Response("OK", status_code=200, media_type="text/plain")
+            await response(scope, receive, send)
+            return
+    
+        response = Response("Not Found", status_code=404)
         await response(scope, receive, send)
-        return
-
-    response = Response("Not Found", status_code=404)
-    await response(scope, receive, send)
 
     # --------------------------------------------------------
     # IMPORTANT FIX
