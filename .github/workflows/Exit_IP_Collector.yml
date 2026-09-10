@@ -1,4 +1,4 @@
-name: Diagnose 20 Parallel Actions
+name: Actions Exit IP Collector
 
 on:
   workflow_dispatch:
