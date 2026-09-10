@@ -1254,37 +1254,38 @@ if __name__ == "__main__":
     
         # ---- Debug: log MCP JSON-RPC requests ----
         if path.startswith("/mcp"):
+            original_receive = receive
             body_parts = []
-    
+
             async def debug_receive():
-                message = await receive()
-    
+                message = await original_receive()
+
                 if message["type"] == "http.request":
                     body = message.get("body", b"")
                     if body:
                         body_parts.append(body)
-    
+
                     if not message.get("more_body", False):
                         try:
                             import json
-    
+
                             raw_body = b"".join(body_parts)
                             data = json.loads(raw_body)
-    
+
                             log.info(
                                 "MCP DEBUG: method=%s id=%s",
                                 data.get("method"),
                                 data.get("id"),
                             )
-    
+
                         except Exception:
                             log.info(
                                 "MCP DEBUG: non-JSON body (%d bytes)",
                                 sum(len(x) for x in body_parts),
                             )
-    
+
                 return message
-    
+
             receive = debug_receive
     
         if path.startswith("/sse") or path.startswith("/messages"):
