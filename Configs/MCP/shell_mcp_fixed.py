@@ -30,6 +30,7 @@ import pty
 import shlex
 import signal
 import struct
+import termios
 import time
 import uuid
 import uvicorn
@@ -533,7 +534,7 @@ async def _create_pty_session(
 
                 fcntl.ioctl(
                     0,
-                    0x5410,
+                    termios.TIOCSWINSZ,
                     packed,
                 )
 
