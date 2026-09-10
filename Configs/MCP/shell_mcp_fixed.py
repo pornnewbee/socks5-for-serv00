@@ -1246,90 +1246,62 @@ if __name__ == "__main__":
     # Dispatcher
     # --------------------------------------------------------
 
-    async def dispatcher(
-        scope,
-        receive,
-        send,
-    ):
+    async def dispatcher(scope, receive, send):
+    if scope["type"] != "http":
+        return await http_app(scope, receive, send)
 
-        if scope["type"] != "http":
+    path = scope.get("path", "/")
 
-            return await http_app(
-                scope,
-                receive,
-                send,
-            )
+    # ---- Debug: log MCP JSON-RPC requests ----
+    if path.startswith("/mcp"):
+        body_parts = []
 
-        path = scope.get(
-            "path",
-            "/",
-        )
+        async def debug_receive():
+            message = await receive()
 
-        # ----------------------------------------------------
-        # Legacy SSE
-        # ----------------------------------------------------
+            if message["type"] == "http.request":
+                body = message.get("body", b"")
+                if body:
+                    body_parts.append(body)
 
-        if (
-            path.startswith("/sse")
-            or path.startswith("/messages")
-        ):
+                if not message.get("more_body", False):
+                    try:
+                        import json
 
-            await app.state.sse_app(
-                scope,
-                receive,
-                send,
-            )
+                        raw_body = b"".join(body_parts)
+                        data = json.loads(raw_body)
 
-            return
+                        log.info(
+                            "MCP DEBUG: method=%s id=%s",
+                            data.get("method"),
+                            data.get("id"),
+                        )
 
-        # ----------------------------------------------------
-        # Streamable HTTP
-        # ----------------------------------------------------
+                    except Exception:
+                        log.info(
+                            "MCP DEBUG: non-JSON body (%d bytes)",
+                            sum(len(x) for x in body_parts),
+                        )
 
-        if path.startswith("/mcp"):
+            return message
 
-            await app.state.stream_app(
-                scope,
-                receive,
-                send,
-            )
+        receive = debug_receive
 
-            return
+    if path.startswith("/sse") or path.startswith("/messages"):
+        await app.state.sse_app(scope, receive, send)
+        return
 
-        # ----------------------------------------------------
-        # Health
-        # ----------------------------------------------------
+    if path.startswith("/mcp"):
+        await app.state.stream_app(scope, receive, send)
+        return
 
-        if path == "/health":
+    if path == "/health":
+        response = Response("OK", status_code=200, media_type="text/plain")
+        await response(scope, receive, send)
+        return
 
-            response = Response(
-                "OK",
-                status_code=200,
-                media_type="text/plain",
-            )
-
-            await response(
-                scope,
-                receive,
-                send,
-            )
-
-            return
-
-        # ----------------------------------------------------
-        # 404
-        # ----------------------------------------------------
-
-        response = Response(
-            "Not Found",
-            status_code=404,
-        )
-
-        await response(
-            scope,
-            receive,
-            send,
-        )
+    response = Response("Not Found", status_code=404)
+    await response(scope, receive, send)
 
     # --------------------------------------------------------
     # IMPORTANT FIX
