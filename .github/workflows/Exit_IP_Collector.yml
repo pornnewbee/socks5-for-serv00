@@ -1,4 +1,4 @@
-name: Actions Exit IP Collector1
+name: Actions Exit IP Collector
 
 on:
   workflow_dispatch:
