@@ -32,7 +32,6 @@ import signal
 import struct
 import time
 import uuid
-
 import uvicorn
 from starlette.applications import Starlette
 from starlette.responses import Response
@@ -185,7 +184,6 @@ async def run_command(command: str, timeout: int = DEFAULT_TIMEOUT):
 
 
 class PTYSession:
-
     def __init__(self, session_id, command):
         self.session_id = session_id
         self.command = command
@@ -201,7 +199,6 @@ class PTYSession:
         self._reader_task = None
 
     def is_alive(self):
-
         if self.closed or self.child_pid is None:
             return False
 
@@ -241,7 +238,6 @@ class PTYSession:
                 )
 
             except Exception:
-
                 try:
                     os.kill(
                         self.child_pid,
@@ -259,7 +255,6 @@ class PTYSession:
                 pass
 
         if self.master_fd is not None:
-
             try:
                 os.close(self.master_fd)
             except Exception:
@@ -272,7 +267,6 @@ class PTYSession:
 sessions = {}
 
 _session_lock = asyncio.Lock()
-
 
 # ============================================================
 # PTY helpers
@@ -1068,42 +1062,31 @@ async def read_file(
                 "error": str(e),
             }
         )
-
-
-# ============================================================
+        # ============================================================
 # Starlette lifespan
 # ============================================================
 
-
 @contextlib.asynccontextmanager
 async def lifespan(app):
-
-    log.info(
-        "Starting MCP session manager"
-    )
+    log.info("Starting MCP session manager")
 
     async with mcp.session_manager.run():
-
+        log.info("MCP session manager started")
         yield
 
-    log.info(
-        "MCP session manager stopped"
-    )
+    log.info("MCP session manager stopped")
 
 
 # ============================================================
 # HTTP application
 # ============================================================
 
-
 async def http_app(
     scope,
     receive,
     send,
 ):
-
     if scope["type"] != "http":
-
         response = Response(
             "Unsupported protocol",
             status_code=400,
@@ -1127,7 +1110,6 @@ async def http_app(
     # --------------------------------------------------------
 
     if path == "/health":
-
         response = Response(
             "OK",
             status_code=200,
@@ -1153,7 +1135,6 @@ async def http_app(
         path.startswith("/sse")
         or path.startswith("/messages")
     ):
-
         sse_app = mcp.sse_app()
 
         await sse_app(
@@ -1171,7 +1152,6 @@ async def http_app(
     # --------------------------------------------------------
 
     if path.startswith("/mcp"):
-
         stream_app = mcp.streamable_http_app()
 
         await stream_app(
@@ -1198,6 +1178,10 @@ async def http_app(
     )
 
 
+# ============================================================
+# Host Starlette application
+# ============================================================
+
 app = Starlette(
     lifespan=lifespan,
 )
@@ -1206,7 +1190,6 @@ app = Starlette(
 # ============================================================
 # Main
 # ============================================================
-
 
 if __name__ == "__main__":
 
@@ -1238,17 +1221,30 @@ if __name__ == "__main__":
         "Health: /health"
     )
 
-    # Build the transport apps before starting Uvicorn.
+    # --------------------------------------------------------
+    # Build transport applications once.
     #
-    # This also ensures the MCP session manager is initialized
-    # by the Starlette lifespan above.
+    # IMPORTANT:
+    #
+    # mcp.streamable_http_app() depends on
+    # mcp.session_manager.run().
+    #
+    # The Starlette lifespan above starts that manager.
+    # --------------------------------------------------------
 
     sse_app = mcp.sse_app()
+
     stream_app = mcp.streamable_http_app()
 
-    # Keep references alive for the custom dispatcher.
+    # Keep references alive for the dispatcher.
+
     app.state.sse_app = sse_app
+
     app.state.stream_app = stream_app
+
+    # --------------------------------------------------------
+    # Dispatcher
+    # --------------------------------------------------------
 
     async def dispatcher(
         scope,
@@ -1269,6 +1265,10 @@ if __name__ == "__main__":
             "/",
         )
 
+        # ----------------------------------------------------
+        # Legacy SSE
+        # ----------------------------------------------------
+
         if (
             path.startswith("/sse")
             or path.startswith("/messages")
@@ -1282,6 +1282,10 @@ if __name__ == "__main__":
 
             return
 
+        # ----------------------------------------------------
+        # Streamable HTTP
+        # ----------------------------------------------------
+
         if path.startswith("/mcp"):
 
             await app.state.stream_app(
@@ -1292,11 +1296,16 @@ if __name__ == "__main__":
 
             return
 
+        # ----------------------------------------------------
+        # Health
+        # ----------------------------------------------------
+
         if path == "/health":
 
             response = Response(
                 "OK",
                 status_code=200,
+                media_type="text/plain",
             )
 
             await response(
@@ -1306,6 +1315,10 @@ if __name__ == "__main__":
             )
 
             return
+
+        # ----------------------------------------------------
+        # 404
+        # ----------------------------------------------------
 
         response = Response(
             "Not Found",
@@ -1318,8 +1331,26 @@ if __name__ == "__main__":
             send,
         )
 
-    uvicorn.run(
+    # --------------------------------------------------------
+    # IMPORTANT FIX
+    #
+    # Do NOT run:
+    #
+    #     uvicorn.run(dispatcher, ...)
+    #
+    # because that bypasses Starlette's lifespan.
+    #
+    # Instead, mount the dispatcher under the Starlette
+    # application and run the Starlette application itself.
+    # --------------------------------------------------------
+
+    app.mount(
+        "/",
         dispatcher,
+    )
+
+    uvicorn.run(
+        app,
         host=LISTEN_HOST,
         port=LISTEN_PORT,
         log_level="info",
