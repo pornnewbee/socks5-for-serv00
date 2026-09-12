@@ -1,0 +1,19 @@
+[Unit]
+Description=Telegram Bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /home/runner/tgbot.py
+WorkingDirectory=/home/runner
+
+Restart=always
+RestartSec=5
+
+# 日志直接进入 journald
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
