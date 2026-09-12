@@ -1,1331 +1,400 @@
+#!/usr/bin/env python3
 """
-MCP Shell Server v2
-- MCP Python SDK v2 / MCPServer
-- run_command
-- Interactive PTY sessions
-- Background processes
-- Direct file read/write
-- SSE compatibility for legacy clients
-- Streamable HTTP for modern MCP clients
-
-Listen:
-    127.0.0.1:6942
-
-Endpoints:
-    /sse
-    /messages
-    /mcp
-    /health
+Telegram Server Bot — improved version v2.
+Fixes: commands like `ping` that need Ctrl+C no longer hang.
+  - /run always non-blocking (threaded), bot stays responsive
+  - start_new_session=True for clean process-group isolation
+  - On timeout: SIGINT first (Ctrl+C), wait 3s, then SIGKILL if needed
+  - Distinguishes SIGINT vs SIGKILL in output
+  - Configurable per-command timeout: /run 10 ping google.com
+  - /ps correctly tracks running tasks
 """
 
-from mcp.server import MCPServer
-
-import asyncio
-import contextlib
-import fcntl
-import json
-import logging
 import os
-import pty
-import shlex
 import signal
-import struct
-import termios
 import time
-import uuid
-import uvicorn
-from starlette.applications import Starlette
-from starlette.responses import Response
+import subprocess
+import tempfile
+import threading
+from pathlib import Path
+
+import requests
+
 
 # ============================================================
 # Configuration
 # ============================================================
 
-LISTEN_HOST = "127.0.0.1"
-LISTEN_PORT = 6942
+BOT_TOKEN = os.environ.get("BOT_TOKEN")
 
-DEFAULT_TIMEOUT = 30
-OUTPUT_MAX_BYTES = 1024 * 1024
-SESSION_IDLE_TIMEOUT = 1800
+if not BOT_TOKEN:
+    raise RuntimeError("请设置环境变量 BOT_TOKEN")
 
-LOG_FILE = "/tmp/mcp_shell.log"
+API = f"https://api.telegram.org/bot{BOT_TOKEN}"
 
-# ============================================================
-# Logging
-# ============================================================
+# 默认命令最大执行时间（秒）
+DEFAULT_COMMAND_TIMEOUT = 30
 
-logging.basicConfig(
-    filename=LOG_FILE,
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s",
-)
+# 最大允许超时（秒）
+MAX_COMMAND_TIMEOUT = 600
 
-log = logging.getLogger("mcp_shell_v2")
+# Telegram 普通消息最大长度大约 4096
+MAX_MESSAGE_LENGTH = 4000
 
-# ============================================================
-# MCP Server
-# ============================================================
-
-mcp = MCPServer("shell-extended")
-
-# ============================================================
-# Command result
-# ============================================================
-
-
-class CommandResult:
-    def __init__(self, stdout, stderr, exit_code, timed_out):
-        self.stdout = stdout
-        self.stderr = stderr
-        self.exit_code = exit_code
-        self.timed_out = timed_out
-
-    def to_dict(self):
-        return {
-            "stdout": self.stdout[-OUTPUT_MAX_BYTES:],
-            "stderr": self.stderr[-OUTPUT_MAX_BYTES:],
-            "exit_code": self.exit_code,
-            "timed_out": self.timed_out,
-        }
+# 文件上传超时
+UPLOAD_TIMEOUT = 600
 
 
 # ============================================================
-# Simple command execution
+# Telegram API
 # ============================================================
 
+def telegram(method, **kwargs):
+    url = f"{API}/{method}"
+    try:
+        r = requests.post(url, json=kwargs, timeout=60)
+        return r.json()
+    except Exception as e:
+        print(f"Telegram API error: {e}")
+        return None
 
-@mcp.tool()
-async def run_command(command: str, timeout: int = DEFAULT_TIMEOUT):
+
+def send_message(chat_id, text):
+    if len(text) > MAX_MESSAGE_LENGTH:
+        return send_text_file(chat_id, text, filename="command-output.txt")
+    return telegram("sendMessage", chat_id=chat_id, text=text)
+
+
+def send_text_file(chat_id, text, filename="output.txt"):
+    tmp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", suffix=".txt", delete=False
+        ) as f:
+            f.write(text)
+            tmp_path = f.name
+        return send_file(chat_id, tmp_path, caption=filename, telegram_filename=filename)
+    finally:
+        if tmp_path:
+            try:
+                os.unlink(tmp_path)
+            except Exception:
+                pass
+
+
+def send_file(chat_id, file_path, caption=None, telegram_filename=None):
+    path = Path(file_path)
+    if not path.exists():
+        return {"ok": False, "error": f"文件不存在: {file_path}"}
+    if not path.is_file():
+        return {"ok": False, "error": f"不是普通文件: {file_path}"}
+    if telegram_filename is None:
+        telegram_filename = path.name
+    url = f"{API}/sendDocument"
+    try:
+        with path.open("rb") as f:
+            data = {"chat_id": str(chat_id)}
+            if caption:
+                data["caption"] = caption
+            response = requests.post(
+                url, data=data, files={"document": (telegram_filename, f)},
+                timeout=UPLOAD_TIMEOUT
+            )
+            return response.json()
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+# ============================================================
+# Command execution
+# ============================================================
+
+def _kill_process_group(proc, sig):
+    """Send signal to the entire process group."""
+    try:
+        os.killpg(os.getpgid(proc.pid), sig)
+    except (ProcessLookupError, OSError):
+        pass
+
+
+def run_command(command, timeout=None):
     """
-    Execute a shell command and return stdout, stderr and exit code.
+    Execute a shell command with proper timeout and process-group cleanup.
+    On timeout: send SIGINT (Ctrl+C), wait 3s for graceful exit,
+    collect partial output, then SIGKILL if still alive.
+    Returns (output_string, timed_out, force_killed).
     """
+    if timeout is None:
+        timeout = DEFAULT_COMMAND_TIMEOUT
+    timeout = min(timeout, MAX_COMMAND_TIMEOUT)
 
-    log.info("[run_command] executing: %s", command[:200])
+    print(f"[RUN] {command} (timeout={timeout}s)")
 
     try:
-        t = int(timeout) if timeout is not None else DEFAULT_TIMEOUT
-    except (ValueError, TypeError):
-        t = DEFAULT_TIMEOUT
-
-    actual_timeout = t if t > 0 else DEFAULT_TIMEOUT
-
-    try:
-        proc = await asyncio.create_subprocess_shell(
+        # start_new_session=True is the Python-recommended way to
+        # create a new process group (replaces preexec_fn=os.setsid)
+        proc = subprocess.Popen(
             command,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            preexec_fn=lambda: (
-                os.setpgrp(),
-                signal.signal(signal.SIGTERM, signal.SIG_DFL),
-            ),
+            shell=True,
+            executable="/bin/bash",
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            start_new_session=True,
         )
 
         timed_out = False
-        stdout = b""
-        stderr = b""
+        force_killed = False
 
         try:
-            stdout, stderr = await asyncio.wait_for(
-                proc.communicate(),
-                timeout=actual_timeout,
-            )
+            stdout, stderr = proc.communicate(timeout=timeout)
+            returncode = proc.returncode
+        except subprocess.TimeoutExpired:
+            # Step 1: SIGINT (what Ctrl+C does)
+            _kill_process_group(proc, signal.SIGINT)
 
-        except asyncio.TimeoutError:
+            # Step 2: wait up to 3s for graceful exit + collect partial output
+            try:
+                stdout, stderr = proc.communicate(timeout=3)
+            except subprocess.TimeoutExpired:
+                # Step 3: SIGKILL — force kill
+                _kill_process_group(proc, signal.SIGKILL)
+                force_killed = True
+                try:
+                    stdout, stderr = proc.communicate(timeout=2)
+                except Exception:
+                    stdout, stderr = "", ""
+
+            returncode = proc.returncode
             timed_out = True
 
-            try:
-                pgid = os.getpgid(proc.pid)
-                os.killpg(pgid, signal.SIGKILL)
-            except Exception:
-                try:
-                    proc.kill()
-                except Exception:
-                    pass
+        # Build output
+        output = ""
+        if stdout:
+            output += stdout
+        if stderr:
+            output += "\n[stderr]\n" + stderr
+        if not output:
+            output = "(no output)"
 
-            await proc.wait()
+        if timed_out:
+            if force_killed:
+                kill_info = "⏱ 超时 (timeout={}s)\n→ SIGINT 无法结束，已发送 SIGKILL\n"
+            else:
+                kill_info = "⏱ 超时 (timeout={}s)\n→ 已发送 SIGINT\n"
+            header = (
+                f"$ {command}\n"
+                f"{kill_info.format(timeout)}"
+                f"exit code: {returncode}\n\n"
+            )
+        else:
+            header = (
+                f"$ {command}\n"
+                f"exit code: {returncode}\n\n"
+            )
 
-        stdout_decoded = stdout.decode(errors="replace") if stdout else ""
-        stderr_decoded = stderr.decode(errors="replace") if stderr else ""
-
-        result = CommandResult(
-            stdout=stdout_decoded,
-            stderr=stderr_decoded,
-            exit_code=(
-                proc.returncode
-                if proc.returncode is not None
-                else -1
-            ),
-            timed_out=timed_out,
-        )
-
-        log.info(
-            "[run_command] exit=%s timed_out=%s",
-            result.exit_code,
-            result.timed_out,
-        )
-
-        return json.dumps(result.to_dict())
+        return header + output
 
     except Exception as e:
-        log.exception("[run_command] error")
-
-        return json.dumps(
-            {
-                "stdout": "",
-                "stderr": f"Error: {e}",
-                "exit_code": -1,
-                "timed_out": False,
-            }
-        )
+        return f"$ {command}\n\nERROR: {e}"
 
 
 # ============================================================
-# PTY Session
+# Task tracking
 # ============================================================
 
+_bg_tasks = {}
+_bg_lock = threading.Lock()
+_task_counter = 0
 
-class PTYSession:
-    def __init__(self, session_id, command):
-        self.session_id = session_id
-        self.command = command
 
-        self.master_fd = None
-        self.child_pid = None
+def _next_task_id():
+    global _task_counter
+    with _bg_lock:
+        _task_counter += 1
+        return _task_counter
 
-        self.output_buffer = ""
 
-        self.last_active = time.time()
-        self.closed = False
+def start_task(chat_id, command, timeout=None):
+    """
+    Run a command in a background thread so the bot stays responsive.
+    Adds the thread to _bg_tasks so /ps can track it.
+    """
+    task_id = _next_task_id()
 
-        self._reader_task = None
-
-    def is_alive(self):
-        if self.closed or self.child_pid is None:
-            return False
-
+    def worker():
         try:
-            pid, _ = os.waitpid(
-                self.child_pid,
-                os.WNOHANG,
-            )
+            output = run_command(command, timeout=timeout)
+            send_message(chat_id, output)
+        except Exception as e:
+            send_message(chat_id, f"$ {command}\n\nERROR: {e}")
+        finally:
+            with _bg_lock:
+                # Keep finished tasks for a while, then they'll be
+                # cleaned up naturally as daemon threads
+                pass
 
-            if pid == self.child_pid:
-                self.closed = True
-                return False
+    t = threading.Thread(target=worker, daemon=True)
+    with _bg_lock:
+        _bg_tasks[task_id] = t
+    t.start()
+    return task_id
 
-            return True
 
-        except ChildProcessError:
-            self.closed = True
-            return False
+# ============================================================
+# Telegram message handling
+# ============================================================
 
-    def close(self):
+def parse_run_command(text):
+    """
+    Parse /run command, supporting optional timeout as first arg.
+    Examples:
+      /run ping google.com         -> timeout=30, command="ping google.com"
+      /run 10 ping google.com      -> timeout=10, command="ping google.com"
+      /run 5 top                   -> timeout=5, command="top"
+    """
+    body = text[len("/run "):].strip()
 
-        if self.closed:
+    # Try to parse leading number as timeout
+    parts = body.split(None, 1)
+    if parts and parts[0].isdigit():
+        timeout = int(parts[0])
+        command = parts[1].strip() if len(parts) > 1 else ""
+    else:
+        timeout = None
+        command = body
+
+    return command, timeout
+
+
+def handle_message(message):
+    chat = message.get("chat", {})
+    chat_id = chat.get("id")
+    text = message.get("text", "")
+
+    if not chat_id or not text:
+        return
+
+    print(f"[MESSAGE] chat={chat_id} text={text}")
+
+    # /start
+    if text == "/start":
+        send_message(chat_id, """🤖 Telegram Server Bot (v2)
+
+可用命令：
+
+/run <命令>
+执行 Shell 命令（默认超时 30s）。
+命令在后台线程执行，Bot 不会阻塞。
+
+/run <秒数> <命令>
+指定超时时间执行命令。
+例如: /run 60 ping google.com
+
+/getfile <文件路径>
+发送服务器文件。
+
+/ps
+查看当前任务。
+
+示例：
+  /run df -h
+  /run 10 ping google.com
+  /run systemctl status xray
+  /getfile /var/log/v2ray/access.log
+""")
+        return
+
+    # /run — always threaded, non-blocking
+    if text.startswith("/run "):
+        command, timeout = parse_run_command(text)
+        if not command:
+            send_message(chat_id, "用法:\n/run <命令>\n/run <秒数> <命令>")
             return
+        effective_timeout = timeout or DEFAULT_COMMAND_TIMEOUT
+        send_message(
+            chat_id,
+            f"⏳ 开始执行:\n\n$ {command}\n(超时: {effective_timeout}s)"
+        )
+        start_task(chat_id, command, timeout=timeout)
+        return
 
-        self.closed = True
+    # /getfile
+    if text.startswith("/getfile "):
+        file_path = text[len("/getfile "):].strip()
+        if not file_path:
+            send_message(chat_id, "用法:\n/getfile <文件路径>")
+            return
+        send_message(chat_id, f"正在发送文件:\n{file_path}")
+        result = send_file(chat_id, file_path)
+        if not result or not result.get("ok"):
+            error = result.get("error") if isinstance(result, dict) else "未知错误"
+            send_message(chat_id, f"发送失败:\n{error}")
+        return
 
-        if self._reader_task:
-            self._reader_task.cancel()
+    # /ps
+    if text == "/ps":
+        with _bg_lock:
+            active = [
+                tid for tid, t in _bg_tasks.items() if t.is_alive()
+            ]
+            total = len(_bg_tasks)
+        if active:
+            send_message(
+                chat_id,
+                f"任务: {len(active)} 个运行中 / {total} 个总计"
+            )
+        else:
+            send_message(chat_id, "没有正在运行的任务")
+        return
 
-        if self.child_pid:
-
-            try:
-                pgid = os.getpgid(self.child_pid)
-                os.killpg(
-                    pgid,
-                    signal.SIGKILL,
-                )
-
-            except Exception:
-                try:
-                    os.kill(
-                        self.child_pid,
-                        signal.SIGKILL,
-                    )
-                except Exception:
-                    pass
-
-            try:
-                os.waitpid(
-                    self.child_pid,
-                    os.WNOHANG,
-                )
-            except ChildProcessError:
-                pass
-
-        if self.master_fd is not None:
-            try:
-                os.close(self.master_fd)
-            except Exception:
-                pass
-
-        self.master_fd = None
-        self.child_pid = None
-
-
-sessions = {}
-
-_session_lock = asyncio.Lock()
-
-# ============================================================
-# PTY helpers
-# ============================================================
-
-
-def _set_nonblocking(fd):
-
-    flags = fcntl.fcntl(
-        fd,
-        fcntl.F_GETFL,
-    )
-
-    fcntl.fcntl(
-        fd,
-        fcntl.F_SETFL,
-        flags | os.O_NONBLOCK,
-    )
+    # Unknown command
+    if text.startswith("/"):
+        send_message(chat_id, "未知命令。\n发送 /start 查看帮助。")
 
 
 # ============================================================
-# PTY reader
+# Long polling
 # ============================================================
 
+def main():
+    print("Telegram bot starting... (v2)")
+    offset = None
 
-async def _reader_loop(session):
-
-    loop = asyncio.get_running_loop()
-
-    fd = session.master_fd
-
-    def _on_readable():
-
+    while True:
         try:
-            data = os.read(
-                fd,
-                65536,
-            )
+            params = {"timeout": 30}
+            if offset is not None:
+                params["offset"] = offset
 
-        except (BlockingIOError, OSError):
-            return
+            response = requests.get(f"{API}/getUpdates", params=params, timeout=40)
+            data = response.json()
 
-        if not data:
-
-            session.closed = True
-
-            asyncio.create_task(
-                _cleanup_session_async(session)
-            )
-
-            return
-
-        decoded = data.decode(
-            errors="replace"
-        )
-
-        session.output_buffer += decoded
-
-        if len(session.output_buffer) > OUTPUT_MAX_BYTES * 2:
-
-            session.output_buffer = (
-                session.output_buffer[-OUTPUT_MAX_BYTES:]
-            )
-
-        session.last_active = time.time()
-
-    try:
-
-        loop.add_reader(
-            fd,
-            _on_readable,
-        )
-
-        while (
-            not session.closed
-            and session.master_fd is not None
-        ):
-
-            await asyncio.sleep(0.5)
-
-    except asyncio.CancelledError:
-        pass
-
-    except Exception as e:
-
-        log.exception(
-            "[reader_loop] %s",
-            session.session_id,
-        )
-
-    finally:
-
-        try:
-            loop.remove_reader(fd)
-        except Exception:
-            pass
-
-
-# ============================================================
-# Session cleanup
-# ============================================================
-
-
-async def _cleanup_session_async(session):
-
-    try:
-
-        if session.child_pid:
-
-            try:
-
-                pgid = os.getpgid(
-                    session.child_pid
-                )
-
-                os.killpg(
-                    pgid,
-                    signal.SIGKILL,
-                )
-
-            except Exception:
-
-                try:
-                    os.kill(
-                        session.child_pid,
-                        signal.SIGKILL,
-                    )
-                except Exception:
-                    pass
-
-            try:
-                os.waitpid(
-                    session.child_pid,
-                    os.WNOHANG,
-                )
-            except ChildProcessError:
-                pass
-
-        if session.master_fd is not None:
-
-            try:
-                os.close(
-                    session.master_fd
-                )
-            except Exception:
-                pass
-
-        session.master_fd = None
-        session.child_pid = None
-
-    except Exception:
-
-        log.exception(
-            "[cleanup_session] %s",
-            session.session_id,
-        )
-
-
-async def _cleanup_stale_sessions():
-
-    now = time.time()
-
-    async with _session_lock:
-
-        stale_ids = []
-
-        for sid, session in list(
-            sessions.items()
-        ):
-
-            if not session.is_alive():
-
-                stale_ids.append(sid)
-
+            if not data.get("ok"):
+                print("getUpdates error:", data)
+                time.sleep(5)
                 continue
 
-            if (
-                now - session.last_active
-                > SESSION_IDLE_TIMEOUT
-            ):
-
-                stale_ids.append(sid)
-
-        for sid in stale_ids:
-
-            session = sessions.pop(
-                sid,
-                None,
-            )
-
-            if session:
-
-                log.info(
-                    "[cleanup] closing stale session %s",
-                    sid,
-                )
-
-                session.close()
-
-
-# ============================================================
-# Start interactive PTY session
-# ============================================================
-
-
-async def _create_pty_session(
-    command,
-    session_id,
-):
-
-    session = PTYSession(
-        session_id=session_id,
-        command=command,
-    )
-
-    master_fd = None
-    slave_fd = None
-
-    try:
-
-        master_fd, slave_fd = pty.openpty()
-
-        _set_nonblocking(
-            master_fd
-        )
-
-        child_pid = os.fork()
-
-        if child_pid == 0:
-
-            try:
-
-                os.setsid()
-
-                os.close(
-                    master_fd
-                )
-
-                os.dup2(
-                    slave_fd,
-                    0,
-                )
-
-                os.dup2(
-                    slave_fd,
-                    1,
-                )
-
-                os.dup2(
-                    slave_fd,
-                    2,
-                )
-
-                if slave_fd > 2:
-                    os.close(slave_fd)
-
-                packed = struct.pack(
-                    "HHHH",
-                    80,
-                    24,
-                    0,
-                    0,
-                )
-
-                fcntl.ioctl(
-                    0,
-                    termios.TIOCSWINSZ,
-                    packed,
-                )
-
-                parts = shlex.split(
-                    command
-                )
-
-                if not parts:
-                    os._exit(1)
-
-                os.execvp(
-                    parts[0],
-                    parts,
-                )
-
-            except Exception:
-
-                os._exit(127)
-
-        os.close(slave_fd)
-        slave_fd = None
-
-        session.master_fd = master_fd
-        session.child_pid = child_pid
-
-        session._reader_task = asyncio.create_task(
-            _reader_loop(session)
-        )
-
-        return session
-
-    except Exception:
-
-        if slave_fd is not None:
-
-            try:
-                os.close(slave_fd)
-            except Exception:
-                pass
-
-        if master_fd is not None:
-
-            try:
-                os.close(master_fd)
-            except Exception:
-                pass
-
-        session.close()
-
-        raise
-
-
-# ============================================================
-# Start interactive session
-# ============================================================
-
-
-@mcp.tool()
-async def start_session(
-    command: str = "/bin/bash",
-    session_id: str | None = None,
-):
-
-    await _cleanup_stale_sessions()
-
-    sid = session_id or uuid.uuid4().hex[:8]
-
-    async with _session_lock:
-
-        if (
-            sid in sessions
-            and sessions[sid].is_alive()
-        ):
-
-            return json.dumps(
-                {
-                    "error": (
-                        f"Session '{sid}' "
-                        "already exists"
-                    )
-                }
-            )
-
-        try:
-
-            session = await _create_pty_session(
-                command,
-                sid,
-            )
-
-            sessions[sid] = session
-
-            log.info(
-                "[start_session] id=%s command=%s pid=%s",
-                sid,
-                command,
-                session.child_pid,
-            )
-
-            return json.dumps(
-                {
-                    "session_id": sid,
-                    "pid": session.child_pid,
-                    "command": command,
-                    "status": "started",
-                }
-            )
-
-        except Exception as e:
-
-            log.exception(
-                "[start_session] error"
-            )
-
-            return json.dumps(
-                {
-                    "error": str(e)
-                }
-            )
-
-
-# ============================================================
-# Send input
-# ============================================================
-
-
-@mcp.tool()
-async def send_input(
-    session_id: str,
-    text: str,
-):
-
-    async with _session_lock:
-
-        session = sessions.get(
-            session_id
-        )
-
-        if (
-            not session
-            or not session.is_alive()
-        ):
-
-            return json.dumps(
-                {
-                    "error": (
-                        f"Session '{session_id}' "
-                        "not found or not alive"
-                    )
-                }
-            )
-
-        try:
-
-            if not text.endswith("\n"):
-                text += "\n"
-
-            data = text.encode()
-
-            os.write(
-                session.master_fd,
-                data,
-            )
-
-            session.last_active = time.time()
-
-            log.info(
-                "[send_input] session=%s bytes=%s",
-                session_id,
-                len(data),
-            )
-
-            return json.dumps(
-                {
-                    "status": "sent",
-                    "bytes": len(data),
-                }
-            )
-
-        except Exception as e:
-
-            log.exception(
-                "[send_input] error"
-            )
-
-            return json.dumps(
-                {
-                    "error": str(e)
-                }
-            )
-
-
-# ============================================================
-# Read PTY output
-# ============================================================
-
-
-@mcp.tool()
-async def read_output(
-    session_id: str,
-    timeout: float = 2.0,
-):
-
-    async with _session_lock:
-
-        session = sessions.get(
-            session_id
-        )
-
-        if not session:
-
-            return json.dumps(
-                {
-                    "error": (
-                        f"Session '{session_id}' "
-                        "not found"
-                    )
-                }
-            )
-
-        if (
-            session.closed
-            and not session.output_buffer
-        ):
-
-            return json.dumps(
-                {
-                    "output": "",
-                    "has_more": False,
-                    "is_alive": False,
-                }
-            )
-
-    try:
-        timeout = float(timeout)
-    except (ValueError, TypeError):
-        timeout = 2.0
-
-    deadline = (
-        time.time()
-        + max(timeout, 0)
-    )
-
-    while time.time() < deadline:
-
-        if session.output_buffer:
+            for update in data.get("result", []):
+                offset = update["update_id"] + 1
+                message = update.get("message")
+                if not message:
+                    continue
+                try:
+                    handle_message(message)
+                except Exception as e:
+                    print("Message handling error:", repr(e))
+                    chat_id = message.get("chat", {}).get("id")
+                    if chat_id:
+                        send_message(chat_id, f"Bot error:\n{e}")
+
+        except KeyboardInterrupt:
+            print("\nBot stopped.")
             break
-
-        if session.closed:
-            break
-
-        await asyncio.sleep(0.05)
-
-    async with _session_lock:
-
-        output = session.output_buffer
-
-        session.output_buffer = ""
-
-        is_alive = session.is_alive()
-
-        if len(output) > OUTPUT_MAX_BYTES:
-
-            output = output[
-                -OUTPUT_MAX_BYTES:
-            ]
-
-        return json.dumps(
-            {
-                "output": output,
-                "has_more": is_alive,
-                "is_alive": is_alive,
-            }
-        )
-
-
-# ============================================================
-# List sessions
-# ============================================================
-
-
-@mcp.tool()
-async def list_sessions():
-
-    await _cleanup_stale_sessions()
-
-    active = []
-
-    async with _session_lock:
-
-        for sid, session in list(
-            sessions.items()
-        ):
-
-            if session.is_alive():
-
-                idle_secs = int(
-                    time.time()
-                    - session.last_active
-                )
-
-                active.append(
-                    {
-                        "session_id": sid,
-                        "command": session.command,
-                        "idle_seconds": idle_secs,
-                    }
-                )
-
-    return json.dumps(
-        {
-            "sessions": active,
-            "count": len(active),
-        }
-    )
-
-
-# ============================================================
-# Close session
-# ============================================================
-
-
-@mcp.tool()
-async def close_session(
-    session_id: str,
-):
-
-    async with _session_lock:
-
-        session = sessions.pop(
-            session_id,
-            None,
-        )
-
-        if not session:
-
-            return json.dumps(
-                {
-                    "error": (
-                        f"Session '{session_id}' "
-                        "not found"
-                    )
-                }
-            )
-
-        session.close()
-
-        log.info(
-            "[close_session] closed session %s",
-            session_id,
-        )
-
-        return json.dumps(
-            {
-                "status": "closed",
-                "session_id": session_id,
-            }
-        )
-
-
-# ============================================================
-# Start background process
-# ============================================================
-
-
-@mcp.tool()
-async def start_background(
-    command: str,
-):
-
-    await _cleanup_stale_sessions()
-
-    sid = uuid.uuid4().hex[:8]
-
-    async with _session_lock:
-
-        try:
-
-            session = await _create_pty_session(
-                command,
-                sid,
-            )
-
-            sessions[sid] = session
-
-            log.info(
-                "[start_background] id=%s command=%s pid=%s",
-                sid,
-                command,
-                session.child_pid,
-            )
-
-            return json.dumps(
-                {
-                    "session_id": sid,
-                    "pid": session.child_pid,
-                    "command": command,
-                    "status": "started",
-                }
-            )
-
         except Exception as e:
+            print("Polling error:", repr(e))
+            time.sleep(5)
 
-            log.exception(
-                "[start_background] error"
-            )
-
-            return json.dumps(
-                {
-                    "error": str(e)
-                }
-            )
-
-
-# ============================================================
-# File operations
-# ============================================================
-
-
-@mcp.tool()
-async def write_file(
-    path: str,
-    content: str,
-):
-
-    """
-    Write content directly to a file on the server.
-    Bypasses shell encoding issues.
-    """
-
-    try:
-
-        dirname = os.path.dirname(
-            path
-        )
-
-        if dirname:
-
-            os.makedirs(
-                dirname,
-                exist_ok=True,
-            )
-
-        with open(
-            path,
-            "w",
-            encoding="utf-8",
-        ) as f:
-
-            f.write(content)
-
-        size = os.path.getsize(
-            path
-        )
-
-        log.info(
-            "[write_file] written %s bytes to %s",
-            size,
-            path,
-        )
-
-        return json.dumps(
-            {
-                "status": "ok",
-                "path": path,
-                "bytes": size,
-            }
-        )
-
-    except Exception as e:
-
-        log.exception(
-            "[write_file] error"
-        )
-
-        return json.dumps(
-            {
-                "status": "error",
-                "error": str(e),
-            }
-        )
-
-
-@mcp.tool()
-async def read_file(
-    path: str,
-):
-
-    """
-    Read a UTF-8 text file from the server.
-    """
-
-    try:
-
-        with open(
-            path,
-            "r",
-            encoding="utf-8",
-        ) as f:
-
-            content = f.read()
-
-        log.info(
-            "[read_file] read %s bytes from %s",
-            len(content),
-            path,
-        )
-
-        return json.dumps(
-            {
-                "status": "ok",
-                "content": content,
-                "bytes": len(content),
-            }
-        )
-
-    except Exception as e:
-
-        log.exception(
-            "[read_file] error"
-        )
-
-        return json.dumps(
-            {
-                "status": "error",
-                "error": str(e),
-            }
-        )
-        # ============================================================
-# Starlette lifespan
-# ============================================================
-
-@contextlib.asynccontextmanager
-async def lifespan(app):
-    log.info("Starting MCP session manager")
-
-    async with mcp.session_manager.run():
-        log.info("MCP session manager started")
-        yield
-
-    log.info("MCP session manager stopped")
-
-
-# ============================================================
-# HTTP application
-# ============================================================
-
-async def http_app(
-    scope,
-    receive,
-    send,
-):
-    if scope["type"] != "http":
-        response = Response(
-            "Unsupported protocol",
-            status_code=400,
-        )
-
-        await response(
-            scope,
-            receive,
-            send,
-        )
-
-        return
-
-    path = scope.get(
-        "path",
-        "/",
-    )
-
-    # --------------------------------------------------------
-    # Health check
-    # --------------------------------------------------------
-
-    if path == "/health":
-        response = Response(
-            "OK",
-            status_code=200,
-            media_type="text/plain",
-        )
-
-        await response(
-            scope,
-            receive,
-            send,
-        )
-
-        return
-
-    # --------------------------------------------------------
-    # Legacy SSE
-    #
-    # /sse
-    # /messages
-    # --------------------------------------------------------
-
-    if (
-        path.startswith("/sse")
-        or path.startswith("/messages")
-    ):
-        sse_app = mcp.sse_app()
-
-        await sse_app(
-            scope,
-            receive,
-            send,
-        )
-
-        return
-
-    # --------------------------------------------------------
-    # MCP Streamable HTTP
-    #
-    # /mcp
-    # --------------------------------------------------------
-
-    if path.startswith("/mcp"):
-        stream_app = mcp.streamable_http_app()
-
-        await stream_app(
-            scope,
-            receive,
-            send,
-        )
-
-        return
-
-    # --------------------------------------------------------
-    # 404
-    # --------------------------------------------------------
-
-    response = Response(
-        "Not Found",
-        status_code=404,
-    )
-
-    await response(
-        scope,
-        receive,
-        send,
-    )
-
-
-# ============================================================
-# Host Starlette application
-# ============================================================
-
-app = Starlette(
-    lifespan=lifespan,
-)
-
-
-# ============================================================
-# Main
-# ============================================================
 
 if __name__ == "__main__":
-
-    log.info(
-        "Starting MCP Shell Server v2 "
-        "on %s:%s",
-        LISTEN_HOST,
-        LISTEN_PORT,
-    )
-
-    print(
-        "MCP Shell Server v2 starting "
-        f"on {LISTEN_HOST}:{LISTEN_PORT}"
-    )
-
-    print(
-        "SSE: /sse"
-    )
-
-    print(
-        "Messages: /messages"
-    )
-
-    print(
-        "Streamable HTTP: /mcp"
-    )
-
-    print(
-        "Health: /health"
-    )
-
-    # --------------------------------------------------------
-    # Build transport applications once.
-    #
-    # IMPORTANT:
-    #
-    # mcp.streamable_http_app() depends on
-    # mcp.session_manager.run().
-    #
-    # The Starlette lifespan above starts that manager.
-    # --------------------------------------------------------
-
-    sse_app = mcp.sse_app()
-
-    stream_app = mcp.streamable_http_app()
-
-    # Keep references alive for the dispatcher.
-
-    app.state.sse_app = sse_app
-
-    app.state.stream_app = stream_app
-
-    # --------------------------------------------------------
-    # Dispatcher
-    # --------------------------------------------------------
-
-    async def dispatcher(scope, receive, send):
-        if scope["type"] != "http":
-            return await http_app(scope, receive, send)
-    
-        path = scope.get("path", "/")
-    
-        # ---- Debug: log MCP JSON-RPC requests ----
-        if path.startswith("/mcp"):
-            original_receive = receive
-            body_parts = []
-
-            async def debug_receive():
-                message = await original_receive()
-
-                if message["type"] == "http.request":
-                    body = message.get("body", b"")
-                    if body:
-                        body_parts.append(body)
-
-                    if not message.get("more_body", False):
-                        try:
-                            import json
-
-                            raw_body = b"".join(body_parts)
-                            data = json.loads(raw_body)
-
-                            log.info(
-                                "MCP DEBUG: method=%s id=%s",
-                                data.get("method"),
-                                data.get("id"),
-                            )
-
-                        except Exception:
-                            log.info(
-                                "MCP DEBUG: non-JSON body (%d bytes)",
-                                sum(len(x) for x in body_parts),
-                            )
-
-                return message
-
-            receive = debug_receive
-    
-        if path.startswith("/sse") or path.startswith("/messages"):
-            await app.state.sse_app(scope, receive, send)
-            return
-    
-        if path.startswith("/mcp"):
-            await app.state.stream_app(scope, receive, send)
-            return
-    
-        if path == "/health":
-            response = Response("OK", status_code=200, media_type="text/plain")
-            await response(scope, receive, send)
-            return
-    
-        response = Response("Not Found", status_code=404)
-        await response(scope, receive, send)
-
-    # --------------------------------------------------------
-    # IMPORTANT FIX
-    #
-    # Do NOT run:
-    #
-    #     uvicorn.run(dispatcher, ...)
-    #
-    # because that bypasses Starlette's lifespan.
-    #
-    # Instead, mount the dispatcher under the Starlette
-    # application and run the Starlette application itself.
-    # --------------------------------------------------------
-
-    app.mount(
-        "/",
-        dispatcher,
-    )
-
-    uvicorn.run(
-        app,
-        host=LISTEN_HOST,
-        port=LISTEN_PORT,
-        log_level="info",
-    )
+    main()
