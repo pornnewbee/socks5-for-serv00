@@ -8,11 +8,14 @@ Fixes: commands like `ping` that need Ctrl+C no longer hang.
   - Distinguishes SIGINT vs SIGKILL in output
   - Configurable per-command timeout: /run 10 ping google.com
   - /ps correctly tracks running tasks
+  - /getfile: auto gzip-compress and/or split large files to fit Telegram's 50MB limit
 """
 
 import os
 import signal
 import time
+import gzip
+import shutil
 import subprocess
 import tempfile
 import threading
@@ -43,6 +46,12 @@ MAX_MESSAGE_LENGTH = 4000
 
 # 文件上传超时
 UPLOAD_TIMEOUT = 600
+
+# Telegram Bot API sendDocument hard limit is 50 MB.
+# Use 48 MB as the safe threshold to leave room for multipart encoding overhead.
+TELEGRAM_FILE_LIMIT = 50 * 1024 * 1024   # 50 MB — Telegram's hard limit
+SAFE_LIMIT          = 48 * 1024 * 1024   # 48 MB — our working threshold
+CHUNK_RAW_SIZE      = 40 * 1024 * 1024   # 40 MB raw per chunk before gzip
 
 
 # ============================================================
@@ -83,6 +92,10 @@ def send_text_file(chat_id, text, filename="output.txt"):
 
 
 def send_file(chat_id, file_path, caption=None, telegram_filename=None):
+    """Low-level: send a single file via Telegram sendDocument.
+
+    Caller must ensure the file is under TELEGRAM_FILE_LIMIT.
+    """
     path = Path(file_path)
     if not path.exists():
         return {"ok": False, "error": f"文件不存在: {file_path}"}
@@ -103,6 +116,160 @@ def send_file(chat_id, file_path, caption=None, telegram_filename=None):
             return response.json()
     except Exception as e:
         return {"ok": False, "error": str(e)}
+
+
+# ============================================================
+# Smart file sending (compress + split)
+# ============================================================
+
+def _format_size(n):
+    if n >= 1024 * 1024:
+        return f"{n / 1024 / 1024:.1f}MB"
+    elif n >= 1024:
+        return f"{n / 1024:.1f}KB"
+    return f"{n}B"
+
+
+def _gzip_to_temp(src_path, suffix=".gz"):
+    """Gzip-compress a file to a temp file, return (tmp_path, compressed_size)."""
+    fd, tmp_path = tempfile.mkstemp(suffix=suffix, prefix="tgbot_")
+    os.close(fd)
+    with open(src_path, "rb") as f_in:
+        with gzip.open(tmp_path, "wb") as f_out:
+            shutil.copyfileobj(f_in, f_out)
+    return tmp_path, os.path.getsize(tmp_path)
+
+
+def _gzip_bytes_to_temp(data, suffix=".gz"):
+    """Gzip-compress raw bytes to a temp file, return (tmp_path, compressed_size)."""
+    fd, tmp_path = tempfile.mkstemp(suffix=suffix, prefix="tgbot_")
+    os.close(fd)
+    with gzip.open(tmp_path, "wb") as f:
+        f.write(data)
+    return tmp_path, os.path.getsize(tmp_path)
+
+
+def _read_chunk_at_line_boundary(f, max_bytes):
+    """Read up to max_bytes, extend to next newline if stopped mid-line."""
+    chunk = f.read(max_bytes)
+    if not chunk:
+        return b""
+    if len(chunk) == max_bytes and not chunk.endswith(b"\n"):
+        rest = f.readline()
+        chunk += rest
+    return chunk
+
+
+def send_file_smart(chat_id, file_path, caption=None):
+    """Send a file with automatic gzip compression and splitting.
+
+    Decision tree:
+      file <= 48MB  -> send directly
+      file >  48MB  -> gzip compress
+        compressed <= 48MB -> send .gz
+        compressed >  48MB -> split at line boundaries, gzip each chunk, send all
+    """
+    path = Path(file_path)
+    if not path.exists():
+        return {"ok": False, "error": f"文件不存在: {file_path}"}
+    if not path.is_file():
+        return {"ok": False, "error": f"不是普通文件: {file_path}"}
+
+    file_size = path.stat().st_size
+    print(f"[GETFILE] {file_path} ({_format_size(file_size)})")
+
+    # ---- Case 1: small enough, send directly ----
+    if file_size <= SAFE_LIMIT:
+        return send_file(chat_id, file_path, caption=caption)
+
+    # ---- Case 2: too large, try gzip compression ----
+    print(f"[GETFILE] {_format_size(file_size)} > {_format_size(SAFE_LIMIT)}, compressing...")
+    send_message(chat_id, f"📦 文件较大 ({_format_size(file_size)})，正在压缩...")
+
+    gz_path = None
+    try:
+        gz_path, gz_size = _gzip_to_temp(file_path, suffix=path.suffix + ".gz")
+
+        if gz_size <= SAFE_LIMIT:
+            # ---- Case 2a: compressed fits ----
+            print(f"[GETFILE] compressed to {_format_size(gz_size)}, sending single .gz")
+            result = send_file(
+                chat_id, gz_path,
+                caption=f"{caption or ''} | gzip {_format_size(file_size)}→{_format_size(gz_size)}".strip(" |"),
+                telegram_filename=path.name + ".gz",
+            )
+            return result
+        else:
+            # ---- Case 2b: still too large, split + per-chunk gzip ----
+            print(f"[GETFILE] compressed still {_format_size(gz_size)} > {_format_size(SAFE_LIMIT)}, splitting...")
+            return _send_file_split(chat_id, file_path, file_size, caption)
+
+    except Exception as e:
+        print(f"[GETFILE] compress/split error: {e}")
+        return {"ok": False, "error": str(e)}
+    finally:
+        if gz_path and os.path.exists(gz_path):
+            os.unlink(gz_path)
+
+
+def _send_file_split(chat_id, file_path, file_size, caption=None):
+    """Split file at line boundaries, gzip each chunk, send each separately."""
+    estimated = max(1, (file_size + CHUNK_RAW_SIZE - 1) // CHUNK_RAW_SIZE)
+    send_message(
+       chat_id,
+        f"📄 文件 {_format_size(file_size)} 压缩后仍超限，分割为约 {estimated} 部分逐个压缩发送"
+    )
+
+    part_num = 0
+    all_ok = True
+
+    with open(file_path, "rb") as f:
+        while True:
+            chunk = _read_chunk_at_line_boundary(f, CHUNK_RAW_SIZE)
+            if not chunk:
+                break
+
+            part_num += 1
+            gz_path, gz_size = _gzip_bytes_to_temp(chunk, suffix=f".part{part_num:02d}.gz")
+
+            if gz_size <= SAFE_LIMIT:
+                ok = send_file(
+                    chat_id, gz_path,
+                    caption=f"{caption or ''} | 部分 {part_num} | {_format_size(len(chunk))}→{_format_size(gz_size)}".strip(" |"),
+                    telegram_filename=Path(file_path).name + f".part{part_num:02d}.gz",
+                )
+                if not ok or not ok.get("ok"):
+                    all_ok = False
+            else:
+                # Edge case: even chunk gzip too large, binary-split compressed data
+                print(f"[GETFILE] part {part_num} still {_format_size(gz_size)} > limit, binary-splitting")
+                with open(gz_path, "rb") as gf:
+                    gz_data = gf.read()
+                sub = 0
+                for start in range(0, len(gz_data), SAFE_LIMIT):
+                    sub += 1
+                    sub_data = gz_data[start:start + SAFE_LIMIT]
+                    fd, sub_path = tempfile.mkstemp(suffix=f".part{part_num:02d}_{sub}.gz", prefix="tgbot_")
+                    os.close(fd)
+                    with open(sub_path, "wb") as sf:
+                        sf.write(sub_data)
+                    ok = send_file(
+                        chat_id, sub_path,
+                        caption=f"{caption or ''} | 部分 {part_num}-{sub} | {_format_size(len(sub_data))}".strip(" |"),
+                        telegram_filename=Path(file_path).name + f".part{part_num:02d}_{sub}.gz",
+                    )
+                    if not ok or not ok.get("ok"):
+                        all_ok = False
+                    os.unlink(sub_path)
+
+            os.unlink(gz_path)
+
+    total = part_num
+    if all_ok:
+        send_message(chat_id, f"✅ 全部 {total} 部分发送完成")
+    else:
+        send_message(chat_id, f"⚠️ 部分发送失败，共 {total} 部分")
+    return {"ok": all_ok}
 
 
 # ============================================================
@@ -293,6 +460,7 @@ def handle_message(message):
 
 /getfile <文件路径>
 发送服务器文件。
+（超过 48MB 自动 gzip 压缩，压缩后仍超则分块发送）
 
 /ps
 查看当前任务。
@@ -319,14 +487,15 @@ def handle_message(message):
         start_task(chat_id, command, timeout=timeout)
         return
 
-    # /getfile
+    # /getfile — smart send with auto compress/split
     if text.startswith("/getfile "):
         file_path = text[len("/getfile "):].strip()
         if not file_path:
             send_message(chat_id, "用法:\n/getfile <文件路径>")
             return
-        send_message(chat_id, f"正在发送文件:\n{file_path}")
-        result = send_file(chat_id, file_path)
+        file_size = os.path.getsize(file_path) if os.path.exists(file_path) else 0
+        send_message(chat_id, f"正在发送文件:\n{file_path} ({_format_size(file_size)})")
+        result = send_file_smart(chat_id, file_path)
         if not result or not result.get("ok"):
             error = result.get("error") if isinstance(result, dict) else "未知错误"
             send_message(chat_id, f"发送失败:\n{error}")
