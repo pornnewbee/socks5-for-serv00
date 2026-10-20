@@ -5,22 +5,16 @@
 HTTP Remote Linux Manager
 Python 3.10+, standard library only.
 
-直接运行（默认 server，监听公网 8765）:
+直接运行（server + agent 一体，监听公网 8765，不限并发）:
     python3 remote_http.py
 
-Server:
+仅 server:
     python3 remote_http.py server --host 0.0.0.0 --port 8765
 
-Agent（默认不限并发）:
+仅 agent:
     python3 remote_http.py agent \
       --url http://your-control.example.com:8765 \
       --name linux-01
-
-  限制最多 10 条并行:
-    python3 remote_http.py agent \
-      --url http://your-control.example.com:8765 \
-      --name linux-01 \
-      --workers 10
 
 Control API:
   POST /api/exec
@@ -362,6 +356,85 @@ def run_agent(args):
     print("Agent stopped.")
 
 
+def run_both(args):
+    """Server + Agent 一体模式：server 跑在 daemon 线程，agent 跑在主线程。"""
+    httpd = Server((args.host, args.port), Handler)
+    print(f"Server listening on {args.host}:{args.port}")
+
+    server_thread = threading.Thread(
+        target=httpd.serve_forever,
+        name="http-server",
+        daemon=True,
+    )
+    server_thread.start()
+
+    base = f"http://127.0.0.1:{args.port}"
+    workers = args.workers
+    stop_event = threading.Event()
+    semaphore = threading.Semaphore(workers) if workers > 0 else None
+
+    limit_desc = f"{workers} workers" if workers > 0 else "unlimited workers"
+    print(f"Agent {args.name} connecting to {base} ({limit_desc})")
+
+    def execute_task(tid, command, timeout):
+        try:
+            result = execute_command(command, timeout)
+            payload = {"task_id": tid, **result}
+            http_json(
+                base + "/api/agent/result",
+                method="POST",
+                payload=payload,
+                timeout=40,
+            )
+            print(
+                f"Task {tid} finished: "
+                f"exit={result['returncode']}, "
+                f"elapsed={result['elapsed']}s"
+            )
+        except Exception as exc:
+            if not stop_event.is_set():
+                print(f"Task {tid} error: {exc}")
+        finally:
+            if semaphore:
+                semaphore.release()
+
+    try:
+        while not stop_event.is_set():
+            try:
+                task = http_json(
+                    base + "/api/agent/poll",
+                    headers={"X-Agent-Name": args.name},
+                    timeout=35,
+                )
+                if not task.get("task_id"):
+                    continue
+
+                tid = task["task_id"]
+                if semaphore:
+                    semaphore.acquire()
+                if stop_event.is_set():
+                    if semaphore:
+                        semaphore.release()
+                    break
+
+                print(f"Running task {tid}")
+                thread = threading.Thread(
+                    target=execute_task,
+                    args=(tid, task["command"], int(task.get("timeout", 60))),
+                    name=f"remote-agent-{tid}",
+                    daemon=True,
+                )
+                thread.start()
+            except Exception as exc:
+                if not stop_event.is_set():
+                    print(f"Agent error: {exc}")
+                    stop_event.wait(3)
+    except KeyboardInterrupt:
+        print("\nStopping...")
+        stop_event.set()
+        httpd.server_close()
+
+
 def main():
     parser = argparse.ArgumentParser(description="HTTP remote Linux manager")
     sub = parser.add_subparsers(dest="mode")
@@ -380,13 +453,21 @@ def main():
         help="Max parallel commands (default: 0 = unlimited)",
     )
 
+    # 默认模式参数（直接运行时使用）
+    parser.add_argument("--host", default="0.0.0.0")
+    parser.add_argument("--port", type=int, default=8765)
+    parser.add_argument("--name", default="local-agent")
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=0,
+        help="Max parallel commands (default: 0 = unlimited)",
+    )
+
     args = parser.parse_args()
     if args.mode is None:
-        args.mode = "server"
-        args.host = "0.0.0.0"
-        args.port = 8765
-
-    if args.mode == "server":
+        run_both(args)
+    elif args.mode == "server":
         run_server(args)
     else:
         run_agent(args)
