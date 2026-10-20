@@ -11,10 +11,16 @@ Python 3.10+, standard library only.
 Server:
     python3 remote_http.py server --host 0.0.0.0 --port 8765
 
-Agent:
+Agent（默认不限并发）:
     python3 remote_http.py agent \
       --url http://your-control.example.com:8765 \
       --name linux-01
+
+  限制最多 10 条并行:
+    python3 remote_http.py agent \
+      --url http://your-control.example.com:8765 \
+      --name linux-01 \
+      --workers 10
 
 Control API:
   POST /api/exec
@@ -291,8 +297,36 @@ def execute_command(command, timeout):
 
 def run_agent(args):
     base = args.url.rstrip("/")
-    print(f"Agent {args.name} connecting to {base}")
-    while True:
+    workers = args.workers
+    stop_event = threading.Event()
+    semaphore = threading.Semaphore(workers) if workers > 0 else None
+
+    limit_desc = f"{workers} workers" if workers > 0 else "unlimited workers"
+    print(f"Agent {args.name} connecting to {base} ({limit_desc})")
+
+    def execute_task(tid, command, timeout):
+        try:
+            result = execute_command(command, timeout)
+            payload = {"task_id": tid, **result}
+            http_json(
+                base + "/api/agent/result",
+                method="POST",
+                payload=payload,
+                timeout=40,
+            )
+            print(
+                f"Task {tid} finished: "
+                f"exit={result['returncode']}, "
+                f"elapsed={result['elapsed']}s"
+            )
+        except Exception as exc:
+            if not stop_event.is_set():
+                print(f"Task {tid} error: {exc}")
+        finally:
+            if semaphore:
+                semaphore.release()
+
+    while not stop_event.is_set():
         try:
             task = http_json(
                 base + "/api/agent/poll",
@@ -303,25 +337,29 @@ def run_agent(args):
                 continue
 
             tid = task["task_id"]
+            if semaphore:
+                semaphore.acquire()
+            if stop_event.is_set():
+                if semaphore:
+                    semaphore.release()
+                break
+
             print(f"Running task {tid}")
-            result = execute_command(
-                task["command"], int(task.get("timeout", 60))
+            thread = threading.Thread(
+                target=execute_task,
+                args=(tid, task["command"], int(task.get("timeout", 60))),
+                name=f"remote-agent-{tid}",
+                daemon=True,
             )
-            payload = {"task_id": tid, **result}
-
-            http_json(
-                base + "/api/agent/result",
-                method="POST",
-                payload=payload,
-                timeout=40,
-            )
-            print(f"Task {tid} finished: exit={result['returncode']}")
-
+            thread.start()
         except KeyboardInterrupt:
             break
         except Exception as exc:
-            print(f"Agent error: {exc}")
-            time.sleep(3)
+            if not stop_event.is_set():
+                print(f"Agent error: {exc}")
+                stop_event.wait(3)
+
+    print("Agent stopped.")
 
 
 def main():
@@ -335,6 +373,12 @@ def main():
     ag = sub.add_parser("agent")
     ag.add_argument("--url", required=True)
     ag.add_argument("--name", default="linux-agent")
+    ag.add_argument(
+        "--workers",
+        type=int,
+        default=0,
+        help="Max parallel commands (default: 0 = unlimited)",
+    )
 
     args = parser.parse_args()
     if args.mode is None:
