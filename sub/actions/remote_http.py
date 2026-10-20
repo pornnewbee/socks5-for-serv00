@@ -5,8 +5,11 @@
 HTTP Remote Linux Manager
 Python 3.10+, standard library only.
 
+直接运行（默认 server，监听公网 8765）:
+    python3 remote_http.py
+
 Server:
-    python3 remote_http.py server --host 127.0.0.1 --port 8765
+    python3 remote_http.py server --host 0.0.0.0 --port 8765
 
 Agent:
     python3 remote_http.py agent \
@@ -323,10 +326,10 @@ def run_agent(args):
 
 def main():
     parser = argparse.ArgumentParser(description="HTTP remote Linux manager")
-    sub = parser.add_subparsers(dest="mode", required=True)
+    sub = parser.add_subparsers(dest="mode")
 
     srv = sub.add_parser("server")
-    srv.add_argument("--host", default="127.0.0.1")
+    srv.add_argument("--host", default="0.0.0.0")
     srv.add_argument("--port", type=int, default=8765)
 
     ag = sub.add_parser("agent")
@@ -334,6 +337,11 @@ def main():
     ag.add_argument("--name", default="linux-agent")
 
     args = parser.parse_args()
+    if args.mode is None:
+        args.mode = "server"
+        args.host = "0.0.0.0"
+        args.port = 8765
+
     if args.mode == "server":
         run_server(args)
     else:
