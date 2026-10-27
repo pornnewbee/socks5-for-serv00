@@ -1,12 +1,13 @@
 [Unit]
-Description=opencode server
-After=network-online.target
-Wants=network-online.target
+Description=OpenCode Server
+After=network.target
 
 [Service]
-Environment=HOME=/root
-ExecStart=/home/runner/.opencode/bin/opencode serve --hostname 127.0.0.1 --port 4096
-Restart=always
+Type=simple
+ExecStart=/home/runner/.opencode/bin/opencode serve
+Restart=on-failure
+RestartSec=5
+Environment=HOME=/home/runner
 
 [Install]
 WantedBy=multi-user.target
