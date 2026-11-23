@@ -1,0 +1,12 @@
+[Unit]
+Description=Remote HTTP Manager (server + agent)
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /usr/local/bin/remote_http.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
